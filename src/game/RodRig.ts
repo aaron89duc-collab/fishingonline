@@ -19,7 +19,10 @@ export interface RigPose {
 /** First-person hands + rod + reel, built from the separated rig art and animated in code (GDD 14.3). */
 export class RodRig {
   readonly c: Phaser.GameObjects.Container;
-  private rope: Phaser.GameObjects.Rope;
+  // rod blank: textured segments (works on both WebGL and Canvas renderers) + a dark under-stroke for contrast
+  private segs: Phaser.GameObjects.Image[] = [];
+  private blankG: Phaser.GameObjects.Graphics;
+  private segW = 1;
   private hand: Phaser.GameObjects.Image;
   private sleeve: Phaser.GameObjects.Image;
   private reel: Phaser.GameObjects.Image;
@@ -44,14 +47,22 @@ export class RodRig {
     this.leftArm = s.add.image(0, 0, 'rig_forearm_sleeve').setOrigin(120 / 991, 235 / 417).setScale(0.5);
     this.sleeve = s.add.image(0, 0, 'rig_sleeve_only').setOrigin(0.02, 0.55).setScale(0.62);
     for (let i = 0; i <= this.N; i++) this.pts.push(new Phaser.Math.Vector2(i * 30, 0));
-    this.rope = s.add.rope(0, 0, 'rig_rod_blank', undefined, this.pts, true);
+    this.blankG = s.add.graphics();
+    const rodTex = s.textures.get('rig_rod_blank');
+    const src = rodTex.getSourceImage() as HTMLImageElement;
+    this.segW = src.width / this.N;
+    for (let i = 0; i < this.N; i++) {
+      const key = `seg${i}`;
+      if (!rodTex.has(key)) rodTex.add(key, 0, Math.floor(i * this.segW), 0, Math.ceil(this.segW) + 1, src.height);
+      this.segs.push(s.add.image(0, 0, 'rig_rod_blank', key).setOrigin(0, 0.5));
+    }
     this.reel = s.add.image(0, 0, 'rig_reel_spinning').setScale(0.36);
     const hand = s.add.image(0, 0, 'rig_hand_right_grip');
     const tex = hand.texture.getSourceImage() as HTMLImageElement;
     hand.setOrigin(CORK_TOP.x / tex.width, CORK_TOP.y / tex.height).setScale(this.scale);
     this.hand = hand;
     this.net = s.add.image(-400, 1300, 'rig_net').setScale(0.7).setOrigin(0.05, 0.5).setVisible(false);
-    this.c.add([this.sleeve, this.rope, this.reel, this.leftArm, this.hand, this.net]);
+    this.c.add([this.sleeve, this.blankG, ...this.segs, this.reel, this.leftArm, this.hand, this.net]);
   }
 
   /** impulse (deg) added to theta that decays — used by cast & hook-set */
@@ -87,7 +98,7 @@ export class RodRig {
       const len = s * this.L - shorten;
       this.pts[i].set(B.x + dir.x * len + nrm.x * defl * side + pull.x * defl * 0.25, B.y + dir.y * len + nrm.y * defl * side + pull.y * defl * 0.25);
     }
-    this.rope.setPoints(this.pts);
+    this.drawBlank();
     this.tip.copy(this.pts[this.N]);
 
     // hand + cork aligned with the butt section of the rod
@@ -103,6 +114,19 @@ export class RodRig {
     knob.x += Math.cos(this.crank) * 16 * Math.min(1, pose.reel * 3);
     knob.y += Math.sin(this.crank) * 12 * Math.min(1, pose.reel * 3);
     this.leftArm.setPosition(knob.x, knob.y).setRotation(118 * DEG + (th + 128 * DEG) * 0.4 + Math.sin(this.crank) * 0.03 * pose.reel);
+  }
+
+  private drawBlank() {
+    const g = this.blankG;
+    g.clear();
+    for (let i = 0; i < this.N; i++) {
+      const a = this.pts[i], b = this.pts[i + 1];
+      const u = i / this.N;
+      g.lineStyle(9 - 6 * u, 0x1b2026, 0.9).lineBetween(a.x, a.y, b.x, b.y);
+      const seg = this.segs[i];
+      const len = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
+      seg.setPosition(a.x, a.y).setRotation(Math.atan2(b.y - a.y, b.x - a.x)).setScale((len + 1.5) / Math.ceil(this.segW), 0.8);
+    }
   }
 
   private local(img: Phaser.GameObjects.Image, tx: number, ty: number) {

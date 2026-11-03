@@ -10,8 +10,8 @@ const gearHeavy = { rodPower: 1.35, reelSpeed: 1.35, drag: 0.8, capacity: 130, l
 type Bot = (s: FightState) => FightInput;
 const skilled: Bot = (s) => ({
   steer: -Math.sign(s.fishDirection || 1),
-  reel: s.tension < 68 ? 1 : 0,
-  release: s.tension > 86 ? 1 : 0,
+  reel: !s.headShake && s.tension < 62 ? 1 : 0,
+  release: s.tension > 80 || (s.headShake && s.tension > 60) ? 1 : 0,
 });
 const holdReel: Bot = () => ({ steer: 0, reel: 1, release: 0 });
 const idle: Bot = () => ({ steer: 0, reel: 0, release: 0 });
@@ -44,8 +44,8 @@ describe('fight balance', () => {
   it('skilled play lands small fish quickly', () => {
     const r = rate('ro_phi', 0.4, gearLight, skilled);
     console.log('ro_phi skilled', r);
-    expect(r.rate).toBeGreaterThan(0.85);
-    expect(r.avgT).toBeLessThan(40);
+    expect(r.rate).toBeGreaterThan(0.8);
+    expect(r.avgT).toBeLessThan(60);
   });
   it('strong / fast fish are winnable but harder', () => {
     for (const id of ['ca_chep', 'ca_loc', 'tram_co', 'ca_tre']) {
@@ -91,7 +91,8 @@ describe('bite pacing', () => {
 
 describe('human-like play', () => {
   it('reports win rates with reaction lag and imperfect steering', () => {
-    for (const [id, gear, label] of [['ro_phi', gearLight, 'L'], ['ca_chep', gearLight, 'L'], ['ca_loc', gearLight, 'L'], ['tram_co', gearLight, 'L'], ['ca_huyen_thoai', gearLight, 'L'], ['ca_huyen_thoai', gearHeavy, 'H']] as const) {
+    const mid = { rodPower: 1, reelSpeed: 1, drag: 0.55, capacity: 70, lineStrength: 1.05 };
+    for (const [id, gear, label] of [['ro_phi', mid, 'P1'], ['ca_tre', mid, 'P1'], ['ca_loc', mid, 'P1']] as const) {
       let ok = 0; const reasons: Record<string, number> = {};
       for (let i = 0; i < 50; i++) {
         const f = FISH_BY_ID[id];
@@ -99,13 +100,20 @@ describe('human-like play', () => {
         const sim = new FightSim(f, f.minWeight + (f.maxWeight - f.minWeight) * 0.5, gear, 14, 0, rng, 0.6);
         const hist: FightState[] = [];
         let steerGuess = 0, res = 'timeout';
+        let inp = { steer: 0, reel: 0, release: 0 };
+        let frame = 0;
         for (let t = 0; t < 240; t += 1 / 30) {
           hist.push({ ...sim.s });
-          const seen = hist[Math.max(0, hist.length - 11)]; // ~0.35 s reaction
-          if (rng.chance(0.03)) steerGuess = rng.chance(0.7) ? -Math.sign(seen.fishDirection || 1) : Math.sign(seen.fishDirection || 1);
-          const inp = { steer: steerGuess, reel: seen.tension < 62 ? 1 : 0, release: seen.tension > 84 ? 1 : 0 };
+          // a human decides ~4 times per second, sees the screen ~0.45 s late and misreads the bar a little
+          if (frame++ % 8 === 0) {
+            const seen = hist[Math.max(0, hist.length - 14)];
+            const tens = seen.tension + rng.range(-8, 8);
+            if (rng.chance(0.25)) steerGuess = rng.chance(0.65) ? -Math.sign(seen.fishDirection || 1) : Math.sign(seen.fishDirection || 1);
+            const shake = seen.headShake && rng.chance(0.7);
+            inp = { steer: steerGuess, reel: !shake && tens < 62 ? 1 : 0, release: tens > 80 || (shake && tens > 62) ? 1 : 0 };
+          }
           const s = sim.update(1 / 30, inp);
-          if (s.phase === 'landing' && rng.chance(0.08)) sim.tryLand();
+          if (s.phase === 'landing' && rng.chance(0.05)) sim.tryLand();
           if (sim.s.phase === 'landed') { ok++; res = ''; break; }
           if (s.phase === 'escaped') { res = s.escapeReason!; break; }
         }

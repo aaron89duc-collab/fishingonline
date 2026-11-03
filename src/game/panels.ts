@@ -74,15 +74,16 @@ export function helpPanel(scene: Phaser.Scene, a: LocalAuthority, onClose: () =>
       ['Ném phao', 'Rê chuột chọn hướng · GIỮ chuột trái để tích lực · THẢ để ném'],
       ['Chọn điểm rơi', 'Lực ném quyết định khoảng cách — vòng trắng là điểm dự kiến'],
       ['Đọc phao', 'Nhấp nhô đều = sóng · Giật ngắn = cá rỉa · Chìm hẳn / bị kéo = cá ăn'],
-      ['Đóng cá', 'Click chuột trái hoặc Space khi phao CHÌM HẲN'],
+      ['Đóng cá', 'Click / Space ngay khi phao CHÌM HẲN và ở dưới nước — chìm thoáng rồi nổi lại là cá rỉa (chìm giả)'],
       ['Đấu cá', 'Giữ chuột trái / W = thu dây · Giữ chuột phải / S = nhả dây'],
       ['Hướng cần', 'A / D hoặc rê chuột — nghiêng cần NGƯỢC hướng cá chạy'],
+      ['Cá lắc đầu', 'Ngừng thu dây, nhả nhẹ nếu căng cao — ghì mạnh lúc này sẽ xé lưỡi'],
       ['Vớt cá', 'Khi cá mệt và sát bờ: Space hoặc click'],
       ['Khác', 'R = thu cần · [ ] / cuộn chuột = độ sâu · 1/2 = đổi mồi · ← → = lia camera · F1 = debug'],
     ];
     lines.forEach(([k, v], i) => {
-      b.add(txt(scene, 50, 100 + i * 46, k, 22, COL.gold, 800));
-      b.add(txt(scene, 300, 100 + i * 46, v, 21, COL.text, 600));
+      b.add(txt(scene, 50, 96 + i * 44, k, 21, COL.gold, 800));
+      b.add(txt(scene, 270, 96 + i * 44, v, 19, COL.text, 600));
     });
     const s = a.profile.settings;
     const toggles: Array<[keyof typeof s, string]> = [

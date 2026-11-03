@@ -65,7 +65,7 @@ export interface Profile {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  assist: true, hints: true, highContrastFloat: false, autoNightFloat: true, shake: true, volume: 0.7, sensitivity: 1, showDebug: false,
+  assist: false, hints: true, highContrastFloat: false, autoNightFloat: true, shake: true, volume: 0.7, sensitivity: 1, showDebug: false,
 };
 
 export function newProfile(): Profile {
@@ -101,6 +101,9 @@ export const SaveStore = {
         const p = JSON.parse(raw) as Profile;
         if (p && p.v === 1) {
           const base = newProfile();
+          // v1.1 difficulty update: assist becomes opt-in for existing saves
+          const raw2 = p as Profile & { diffV?: number };
+          if (!raw2.diffV) { raw2.diffV = 2; if (raw2.settings) raw2.settings.assist = false; }
           return { ...base, ...p, settings: { ...base.settings, ...p.settings }, stats: { ...base.stats, ...p.stats }, baits: { ...base.baits, ...p.baits }, equip: { ...base.equip, ...p.equip } };
         }
       }

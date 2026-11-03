@@ -160,6 +160,10 @@ export class BiteSession {
           const strength = filter ? r.range(0.15, 0.3) : r.range(0.25, 0.55);
           this.pulses.push({ t: 0, dur: filter ? 0.18 : r.range(0.22, 0.45), sink: strength, tilt: r.range(-0.25, 0.25), dx: r.range(-4, 4) });
           if (filter && r.chance(0.6)) this.pulses.push({ t: -0.25, dur: 0.16, sink: strength * 0.8, tilt: r.range(-0.2, 0.2), dx: 0 });
+          // "chìm giả": the fish snatches the bait and lets go — float dips fully for an instant and pops back
+          if (!this.c.newbie && r.chance(f.nibbleStyle === 'predator' ? 0.5 : f.nibbleStyle === 'small' ? 0.35 : 0.25)) {
+            this.pulses.push({ t: -r.range(0.3, 0.6), dur: r.range(0.16, 0.26), sink: r.range(1.05, 1.3), tilt: r.range(-0.3, 0.3), dx: r.range(-6, 6) });
+          }
           ev.push({ type: 'nibble', strength });
           this.gap = filter ? r.range(0.35, 0.9) : r.range(0.7, 2.0);
           if (!this.c.newbie && r.chance(f.caution * 0.12)) {
@@ -173,7 +177,8 @@ export class BiteSession {
       case 'TAKING_BAIT': {
         if (this.stateT >= this.dur) {
           const f = this.species!;
-          this.windowLen = f.bitePatience * (this.c.assist ? 1.8 : 1) * this.c.rodSensitivity * r.range(0.85, 1.15);
+          // real bites are short: ~0.4–1.1 s without assist (fast predators the shortest)
+          this.windowLen = f.bitePatience * 0.72 * (this.c.assist ? 1.45 : 1) * (this.c.newbie ? 1.5 : 1) * this.c.rodSensitivity * r.range(0.85, 1.15);
           this.enter('HOOK_WINDOW', this.windowLen);
           ev.push({ type: 'window' });
         }
@@ -220,8 +225,10 @@ export class BiteSession {
   hook(): HookResult {
     const s = this.state;
     if (s === 'HOOK_WINDOW') {
-      const q = 1 - Math.abs(this.stateT / this.dur - 0.35) * 0.9;
-      const ok = this.c.rng.chance(0.9 + 0.1 * q);
+      // best moment: early in the window (fish has just turned with the bait). Late = hook only lips.
+      const u = this.stateT / this.dur;
+      const q = clamp(1 - Math.abs(u - 0.22) * 1.6, 0, 1);
+      const ok = this.c.rng.chance(this.c.newbie ? 0.95 : 0.55 + 0.45 * q);
       if (ok) {
         this.state = 'HOOKED';
         return { ok, state: s, quality: clamp(q, 0, 1), reason: 'Đóng cá thành công!' };
@@ -231,7 +238,7 @@ export class BiteSession {
       return { ok, state: s, quality: q, reason: 'Lưỡi không ăn — cá tuột!' };
     }
     if (s === 'TAKING_BAIT') {
-      if (this.c.rng.chance(0.35)) {
+      if (this.c.rng.chance(0.15)) {
         this.state = 'HOOKED';
         return { ok: true, state: s, quality: 0.4, reason: 'Đóng hơi sớm nhưng vẫn dính!' };
       }

@@ -287,7 +287,7 @@ export class FishingScene extends Phaser.Scene {
       this.lastPhase = '';
       this.wasRed = false;
       this.fightCamX = this.cameras.main.scrollX;
-      this.hud.toast(res.reason, '#7ef0c8', 1600);
+      this.hud.toast(res.quality >= 0.6 ? 'Đóng cá chuẩn — lưỡi ăn chắc!' : res.quality >= 0.3 ? 'Dính cá — lưỡi ăn vừa.' : 'Dính cá nhưng lưỡi chỉ móc hờ — cẩn thận!', res.quality >= 0.3 ? '#7ef0c8' : COL.gold, 1800);
       if (this.auth.profile.settings.shake) this.cameras.main.shake(180, 0.004);
       this.playFx('splash_light', this.float.c.x, this.float.y, this.float.scale * 0.8, 0.5, 0.85);
       this.float.hide();
@@ -745,6 +745,7 @@ export class FishingScene extends Phaser.Scene {
     this.ui.debugT.setText([
       `mode=${this.mode}  fps=${this.game.loop.actualFps.toFixed(0)}  hour=${this.hour.toFixed(2)}  wind=${this.wind.toFixed(2)}`,
       `bite=${b?.state ?? '-'} species=${b?.species?.id ?? '-'} t=${b?.stateT.toFixed(2) ?? '-'} window=${b ? b.windowProgress().toFixed(2) : '-'}`,
+      `renderer=${this.game.renderer.type === Phaser.WEBGL ? 'WebGL' : 'Canvas'}  hookHold=${f ? f.hookHold.toFixed(0) : '-'} shake=${f ? f.headShake : '-'}`,
       `float x=${this.float.c.x.toFixed(0)} y=${this.float.y.toFixed(0)} sink=${this.float.sinkNow.toFixed(2)} cast d=${this.auth.cast?.d.toFixed(1) ?? '-'} lat=${this.auth.cast?.lateral.toFixed(1) ?? '-'}`,
       f ? `fight ${f.phase} T=${f.tension.toFixed(0)} stam=${f.fishStamina.toFixed(0)} line=${f.lineIntegrity.toFixed(0)} dist=${f.dist.toFixed(1)} lat=${f.lateral.toFixed(1)} dir=${f.fishDirection.toFixed(2)} lev=${f.leverage.toFixed(2)}` : 'fight -',
       `agents: ${ag}`,

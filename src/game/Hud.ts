@@ -30,6 +30,7 @@ export class Hud {
   private tensionIcon: Phaser.GameObjects.Text;
   private staminaBar: Bar;
   private lineBar: Bar;
+  private hookBar: Bar;
   private phaseT: Phaser.GameObjects.Text;
   private promptC: Phaser.GameObjects.Container;
   private promptT: Phaser.GameObjects.Text;
@@ -87,13 +88,15 @@ export class Hud {
     this.tensionT = txt(s, fx + fw + 20, fy, '0', 34, COL.text, 800).setOrigin(0, 0.5);
     this.tensionIcon = txt(s, fx - 20, fy, '✓', 34, '#45c97a', 800).setOrigin(1, 0.5);
     const lab = txt(s, fx, fy - 50, 'LỰC CĂNG DÂY', 20, COL.text, 800);
-    this.staminaBar = new Bar(s, fx + 330, fy - 40, 200, 14, 'ui_bar_stamina_full');
-    this.lineBar = new Bar(s, fx + 560, fy - 40, 200, 14, 'ui_bar_bg');
-    const sl = txt(s, fx + 330, fy - 68, 'Sức cá', 16, COL.dim, 700);
-    const ll = txt(s, fx + 560, fy - 68, 'Độ bền dây', 16, COL.dim, 700);
+    this.staminaBar = new Bar(s, fx + 250, fy - 40, 160, 14, 'ui_bar_stamina_full');
+    this.lineBar = new Bar(s, fx + 430, fy - 40, 160, 14, 'ui_bar_bg');
+    this.hookBar = new Bar(s, fx + 610, fy - 40, 150, 14, 'ui_bar_cast_full');
+    const sl = txt(s, fx + 250, fy - 68, 'Sức cá', 16, COL.dim, 700);
+    const ll = txt(s, fx + 430, fy - 68, 'Độ bền dây', 16, COL.dim, 700);
+    const hl = txt(s, fx + 610, fy - 68, 'Độ chắc lưỡi', 16, COL.dim, 700);
     this.phaseT = txt(s, fx, fy + 30, '', 22, COL.gold, 800);
     this.warnT = txt(s, 960, 860, '', 34, '#ff5a3c', 800).setOrigin(0.5);
-    this.fightC.add([zones, this.tensionBar, ticks, this.tensionT, this.tensionIcon, lab, this.staminaBar, this.lineBar, sl, ll, this.phaseT, this.warnT]);
+    this.fightC.add([zones, this.tensionBar, ticks, this.tensionT, this.tensionIcon, lab, this.staminaBar, this.lineBar, this.hookBar, sl, ll, hl, this.phaseT, this.warnT]);
     this.root.add(this.fightC);
     // ---- prompt
     this.promptC = s.add.container(960, 540).setVisible(false);
@@ -130,8 +133,8 @@ export class Hud {
     this.hintBg.setVisible(!!s).setSize(w, 56);
     this.hintT.setVisible(!!s);
     if (top) {
-      this.hintBg.setPosition(960 - w / 2, 290);
-      this.hintT.setPosition(960 - w / 2 + 22, 262);
+      this.hintBg.setPosition(960 - w / 2, 372);
+      this.hintT.setPosition(960 - w / 2 + 22, 344);
     } else {
       this.hintBg.setPosition(30, 1036);
       this.hintT.setPosition(52, 1008);
@@ -158,8 +161,9 @@ export class Hud {
     this.tensionIcon.setText(t < 60 ? '✓' : t < 85 ? '!' : '‼').setColor(t < 60 ? '#45c97a' : t < 85 ? '#f2c94c' : '#ff5a3c');
     this.staminaBar.set(f.fishStamina / 100);
     this.lineBar.set(f.lineIntegrity / 100, f.lineIntegrity > 50 ? 0xd7e2e6 : 0xff8a5a);
+    this.hookBar.set(f.hookHold / 100, f.hookHold > 40 ? undefined : 0xff8a5a);
     this.phaseT.setText('Cá: ' + (labels[f.phase] ?? '') + (f.dragSlipping ? '  ·  máy đang xả dây' : ''));
-    const warn = f.lineIntegrity < 45 ? 'DÂY SẮP ĐỨT — NHẢ DÂY!' : t > 85 ? 'LỰC CĂNG QUÁ CAO!' : f.tension < 8 ? 'Dây đang chùng — thu dây!' : '';
+    const warn = f.lineIntegrity < 45 ? 'DÂY SẮP ĐỨT — NHẢ DÂY!' : f.headShake ? 'CÁ LẮC ĐẦU — NGỪNG THU DÂY!' : t > 85 ? 'LỰC CĂNG QUÁ CAO!' : f.hookHold < 30 ? 'Lưỡi sắp tuột — giữ dây vừa căng!' : f.tension < 8 ? 'Dây đang chùng — thu dây!' : '';
     this.warnT.setText(warn).setAlpha(warn ? 0.65 + 0.35 * Math.sin(this.scene.time.now / 90) : 0).setColor(f.tension < 8 && f.lineIntegrity >= 45 ? '#f2c94c' : '#ff5a3c');
   }
 

@@ -83,7 +83,7 @@ export const FISH: FishDefinition[] = [
     id: 'ca_tre', name: 'Cá trê', latin: 'Clarias batrachus', rarity: 'uncommon',
     minWeight: 0.3, maxWeight: 5, maxLength: 60, preferredBaits: { giun: 1, tep: 0.9 },
     depth: [1.6, 4.0], activeHours: hours([[18, 5, 2.4], [6, 17, 0.45]]), caution: 0.2, bitePatience: 2.2,
-    nibbles: [0, 2], nibbleStyle: 'bottom', fightStyle: 'strong', fightingPower: 0.85, speed: 1.4, stamina: 14,
+    nibbles: [0, 2], nibbleStyle: 'bottom', fightStyle: 'strong', fightingPower: 0.97, speed: 1.4, stamina: 19,
     burstFrequency: 0.5, obstacleSeeking: 0.45, jumps: false, pricePerKg: 50, xp: 20, art: 'fish_ca_tre',
     note: 'Mạnh về tối và đêm, ở sát đáy. Kéo lì, ít bùng tốc.',
   },

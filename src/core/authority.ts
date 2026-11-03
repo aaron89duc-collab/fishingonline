@@ -154,7 +154,7 @@ export class LocalAuthority {
       this.fight = new FightSim(sp, this.biter.weight, {
         rodPower: lo.rod.power ?? 1, reelSpeed: lo.reel.reelSpeed ?? 1, drag: lo.reel.drag ?? 0.5,
         capacity: lo.reel.capacity ?? 70, lineStrength: lo.line.strength ?? 1,
-      }, this.cast.d, this.cast.lateral, this.rng, cover);
+      }, this.cast.d, this.cast.lateral, this.rng, cover, res.quality);
     } else if (!res.ok && this.biter) {
       this.school.flee(this.biter);
       this.biter = null;
