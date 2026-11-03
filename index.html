@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#0e2a33" />
+    <title>Fishing World Online</title>
+    <link rel="icon" type="image/png" href="./favicon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+      html, body { margin: 0; padding: 0; height: 100%; background: #0b1d22; overflow: hidden; }
+      #game { width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+      canvas { touch-action: none; }
+      #rotate { display: none; position: fixed; inset: 0; z-index: 10; background: #0b1d22; color: #cfe7ea; align-items: center; justify-content: center;
+                 text-align: center; padding: 24px; font: 600 20px 'Be Vietnam Pro', system-ui, sans-serif; }
+      @media (orientation: portrait) and (max-width: 900px) { #rotate { display: flex; } }
+      #boot { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #cfe7ea;
+              font: 600 18px 'Be Vietnam Pro', system-ui, sans-serif; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <div id="rotate">Xoay ngang điện thoại để chơi Fishing World Online</div>
+    <div id="boot">Đang tải Fishing World Online…</div>
+    <div id="game"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
