@@ -1,0 +1,586 @@
+{
+ "bg/boco/sky.jpg": [
+  2880,
+  1080
+ ],
+ "bg/boco/mtn_far.png": [
+  2880,
+  500
+ ],
+ "bg/boco/mtn_near.png": [
+  2880,
+  500
+ ],
+ "bg/boco/treeline.png": [
+  2880,
+  400
+ ],
+ "bg/boco/water.jpg": [
+  2880,
+  640
+ ],
+ "bg/boco/reflection.png": [
+  2880,
+  300
+ ],
+ "bg/clouds/cloud_0.png": [
+  669,
+  462
+ ],
+ "bg/clouds/cloud_1.png": [
+  339,
+  237
+ ],
+ "bg/clouds/cloud_2.png": [
+  446,
+  308
+ ],
+ "bg/clouds/cloud_3.png": [
+  212,
+  148
+ ],
+ "bg/clouds/cloud_4.png": [
+  240,
+  179
+ ],
+ "bg/clouds/cloud_5.png": [
+  254,
+  200
+ ],
+ "bg/clouds/cloud_6.png": [
+  299,
+  213
+ ],
+ "bg/menu_boco.jpg": [
+  1920,
+  1080
+ ],
+ "props/lotus_leaf_01.png": [
+  331,
+  308
+ ],
+ "props/lotus_leaf_02.png": [
+  305,
+  305
+ ],
+ "props/lotus_leaf_03.png": [
+  273,
+  263
+ ],
+ "props/lotus_leaf_04.png": [
+  290,
+  243
+ ],
+ "props/lotus_leaf_05.png": [
+  294,
+  250
+ ],
+ "props/lotus_leaf_06.png": [
+  301,
+  273
+ ],
+ "props/lotus_flower_01.png": [
+  303,
+  247
+ ],
+ "props/lotus_flower_02.png": [
+  311,
+  236
+ ],
+ "props/lotus_bud_01.png": [
+  247,
+  200
+ ],
+ "props/lotus_bud_02.png": [
+  265,
+  168
+ ],
+ "props/hyacinth_01.png": [
+  356,
+  346
+ ],
+ "props/hyacinth_02.png": [
+  355,
+  346
+ ],
+ "props/hyacinth_03.png": [
+  320,
+  342
+ ],
+ "props/reed_01.png": [
+  236,
+  434
+ ],
+ "props/reed_02.png": [
+  343,
+  388
+ ],
+ "props/reed_03.png": [
+  330,
+  372
+ ],
+ "props/reed_04.png": [
+  290,
+  355
+ ],
+ "props/rock.png": [
+  294,
+  198
+ ],
+ "props/tackle_box.png": [
+  484,
+  399
+ ],
+ "props/bait_box.png": [
+  508,
+  486
+ ],
+ "props/angler_sitting.png": [
+  520,
+  377
+ ],
+ "props/angler_standing.png": [
+  373,
+  802
+ ],
+ "props/creature_heron.png": [
+  400,
+  561
+ ],
+ "props/creature_dragonfly.png": [
+  247,
+  188
+ ],
+ "props/creature_butterfly.png": [
+  213,
+  188
+ ],
+ "props/creature_frog.png": [
+  291,
+  236
+ ],
+ "fx/ripple_00.png": [
+  256,
+  96
+ ],
+ "fx/ripple_01.png": [
+  256,
+  96
+ ],
+ "fx/ripple_02.png": [
+  256,
+  96
+ ],
+ "fx/ripple_03.png": [
+  256,
+  96
+ ],
+ "fx/ripple_04.png": [
+  256,
+  96
+ ],
+ "fx/ripple_05.png": [
+  256,
+  96
+ ],
+ "fx/ripple_06.png": [
+  256,
+  96
+ ],
+ "fx/ripple_07.png": [
+  256,
+  96
+ ],
+ "fx/ripple_08.png": [
+  256,
+  96
+ ],
+ "fx/ripple_09.png": [
+  256,
+  96
+ ],
+ "fx/ripple_10.png": [
+  256,
+  96
+ ],
+ "fx/ripple_11.png": [
+  256,
+  96
+ ],
+ "fx/ripple_small_00.png": [
+  128,
+  48
+ ],
+ "fx/ripple_small_01.png": [
+  128,
+  48
+ ],
+ "fx/ripple_small_02.png": [
+  128,
+  48
+ ],
+ "fx/ripple_small_03.png": [
+  128,
+  48
+ ],
+ "fx/ripple_small_04.png": [
+  128,
+  48
+ ],
+ "fx/ripple_small_05.png": [
+  128,
+  48
+ ],
+ "fx/ripple_small_06.png": [
+  128,
+  48
+ ],
+ "fx/ripple_small_07.png": [
+  128,
+  48
+ ],
+ "fx/bubbles_00.png": [
+  64,
+  96
+ ],
+ "fx/bubbles_01.png": [
+  64,
+  96
+ ],
+ "fx/bubbles_02.png": [
+  64,
+  96
+ ],
+ "fx/bubbles_03.png": [
+  64,
+  96
+ ],
+ "fx/bubbles_04.png": [
+  64,
+  96
+ ],
+ "fx/bubbles_05.png": [
+  64,
+  96
+ ],
+ "fx/bubbles_06.png": [
+  64,
+  96
+ ],
+ "fx/bubbles_07.png": [
+  64,
+  96
+ ],
+ "fx/line_wake_00.png": [
+  256,
+  64
+ ],
+ "fx/line_wake_01.png": [
+  256,
+  64
+ ],
+ "fx/line_wake_02.png": [
+  256,
+  64
+ ],
+ "fx/line_wake_03.png": [
+  256,
+  64
+ ],
+ "fx/line_wake_04.png": [
+  256,
+  64
+ ],
+ "fx/line_wake_05.png": [
+  256,
+  64
+ ],
+ "fx/line_wake_06.png": [
+  256,
+  64
+ ],
+ "fx/line_wake_07.png": [
+  256,
+  64
+ ],
+ "fx/fish_wake_00.png": [
+  512,
+  128
+ ],
+ "fx/fish_wake_01.png": [
+  512,
+  128
+ ],
+ "fx/fish_wake_02.png": [
+  512,
+  128
+ ],
+ "fx/fish_wake_03.png": [
+  512,
+  128
+ ],
+ "fx/fish_wake_04.png": [
+  512,
+  128
+ ],
+ "fx/fish_wake_05.png": [
+  512,
+  128
+ ],
+ "fx/fish_wake_06.png": [
+  512,
+  128
+ ],
+ "fx/fish_wake_07.png": [
+  512,
+  128
+ ],
+ "fx/splash_light_00.png": [
+  256,
+  256
+ ],
+ "fx/splash_light_01.png": [
+  256,
+  256
+ ],
+ "fx/splash_light_02.png": [
+  256,
+  256
+ ],
+ "fx/splash_light_03.png": [
+  256,
+  256
+ ],
+ "fx/splash_light_04.png": [
+  256,
+  256
+ ],
+ "fx/splash_light_05.png": [
+  256,
+  256
+ ],
+ "fx/splash_light_06.png": [
+  256,
+  256
+ ],
+ "fx/splash_light_07.png": [
+  256,
+  256
+ ],
+ "fx/splash_light_08.png": [
+  256,
+  256
+ ],
+ "fx/splash_light_09.png": [
+  256,
+  256
+ ],
+ "fx/splash_strong_00.png": [
+  512,
+  512
+ ],
+ "fx/splash_strong_01.png": [
+  512,
+  512
+ ],
+ "fx/splash_strong_02.png": [
+  512,
+  512
+ ],
+ "fx/splash_strong_03.png": [
+  512,
+  512
+ ],
+ "fx/splash_strong_04.png": [
+  512,
+  512
+ ],
+ "fx/splash_strong_05.png": [
+  512,
+  512
+ ],
+ "fx/splash_strong_06.png": [
+  512,
+  512
+ ],
+ "fx/splash_strong_07.png": [
+  512,
+  512
+ ],
+ "fx/splash_strong_08.png": [
+  512,
+  512
+ ],
+ "fx/splash_strong_09.png": [
+  512,
+  512
+ ],
+ "fx/splash_strong_10.png": [
+  512,
+  512
+ ],
+ "fx/splash_strong_11.png": [
+  512,
+  512
+ ],
+ "fx/sparkle_1.png": [
+  32,
+  32
+ ],
+ "fx/sparkle_2.png": [
+  48,
+  48
+ ],
+ "fx/sparkle_3.png": [
+  64,
+  64
+ ],
+ "fx/sparkle_4.png": [
+  72,
+  72
+ ],
+ "fx/sparkle_5.png": [
+  84,
+  84
+ ],
+ "fx/sparkle_6.png": [
+  96,
+  96
+ ],
+ "fx/target_ring.png": [
+  256,
+  96
+ ],
+ "fx/trajectory_dot.png": [
+  16,
+  16
+ ],
+ "rig/hand_right_grip.png": [
+  837,
+  673
+ ],
+ "rig/forearm_sleeve.png": [
+  991,
+  417
+ ],
+ "rig/rod_blank.png": [
+  760,
+  34
+ ],
+ "rig/reel_spinning.png": [
+  522,
+  475
+ ],
+ "rig/net.png": [
+  660,
+  362
+ ],
+ "rig/sleeve_only.png": [
+  661,
+  417
+ ],
+ "float/long_basic.png": [
+  21,
+  256
+ ],
+ "float/long_contrast.png": [
+  21,
+  256
+ ],
+ "float/long_night_glow.png": [
+  46,
+  256
+ ],
+ "fish/ro_phi.png": [
+  1000,
+  516
+ ],
+ "fish/shadow_ro_phi.png": [
+  408,
+  234
+ ],
+ "fish/ca_tre.png": [
+  1000,
+  238
+ ],
+ "fish/shadow_ca_tre.png": [
+  408,
+  134
+ ],
+ "fish/ca_loc.png": [
+  1000,
+  165
+ ],
+ "fish/shadow_ca_loc.png": [
+  408,
+  107
+ ],
+ "ui/bar_bg.png": [
+  600,
+  60
+ ],
+ "ui/bar_tension_full.png": [
+  600,
+  60
+ ],
+ "ui/bar_cast_full.png": [
+  600,
+  60
+ ],
+ "ui/bar_stamina_full.png": [
+  600,
+  60
+ ],
+ "ui/panel_info.png": [
+  800,
+  400
+ ],
+ "ui/panel_result.png": [
+  800,
+  500
+ ],
+ "ui/toast.png": [
+  600,
+  120
+ ],
+ "ui/button_round.png": [
+  128,
+  128
+ ],
+ "ui/button_square.png": [
+  128,
+  128
+ ],
+ "ui/icon_home.png": [
+  96,
+  90
+ ],
+ "ui/icon_help.png": [
+  96,
+  96
+ ],
+ "ui/icon_close.png": [
+  96,
+  95
+ ],
+ "ui/gear_hook.png": [
+  128,
+  194
+ ],
+ "ui/gear_bait_worm.png": [
+  128,
+  106
+ ],
+ "ui/gear_bucket.png": [
+  128,
+  166
+ ],
+ "ui/logo.png": [
+  520,
+  518
+ ],
+ "../favicon.png": [
+  192,
+  192
+ ]
+}
