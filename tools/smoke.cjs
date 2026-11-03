@@ -1,4 +1,4 @@
-// Headless smoke test: menu → fishing → cast → wait for bite → hook → fight → land / escape
+//  Headless smoke test: menu → fishing → cast → wait for bite → hook → fight → land / escape
 const { chromium } = require('playwright');
 (async () => {
   const out = process.argv[2] || '/home/claude/shots';
