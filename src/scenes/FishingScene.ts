@@ -207,9 +207,15 @@ export class FishingScene extends Phaser.Scene {
   private toggleNet() {
     if (this.mode !== 'fight' || this.modal) return;
     const s = this.fightState;
-    if (!this.netOut && s && s.dist > 6) {
-      this.hud.toast('Cá còn xa — thu dây vào gần bờ rồi mới đưa vợt (F).', COL.dim, 1500);
-      return;
+    if (!this.netOut && s) {
+      if (s.dist > 4.2) {
+        this.hud.toast(`Cá còn cách ${s.dist.toFixed(1).replace('.', ',')} m — thu dây tới dưới 4 m rồi mới đưa vợt (F).`, '#ffb27a', 1800);
+        return;
+      }
+      if (s.fishStamina > 40) {
+        this.hud.toast(`Cá còn khỏe (sức ${Math.round(s.fishStamina)}%) — làm cá mệt dưới 40% rồi mới đưa vợt.`, '#ffb27a', 1800);
+        return;
+      }
     }
     this.netOut = !this.netOut;
     if (this.netOut) this.input2.left = false;
@@ -779,7 +785,11 @@ export class FishingScene extends Phaser.Scene {
     const s = this.auth.fightTick(dt, c);
     if (!s) return null;
     this.fightState = s;
-    if (this.netOut && s.dist > 6 && s.phase !== 'landing') this.netOut = false; // fish ran off again
+    // net is out but the fish is not in the landing window any more (final burst, failed scoop, ran off): put the net away so the player can reel again
+    if (this.netOut && s.phase === 'fighting') {
+      this.netOut = false;
+      this.hud.toast(s.message || s.landing.reason || 'Cá vùng ra — cất vợt, thu dây lại.', '#ffb27a', 1800);
+    }
     const fx = s.phase === 'landing' ? s.landing.fishX : s.lateral;
     const w = p.toWorld(s.dist, fx);
     const cam = this.cameras.main;
@@ -807,7 +817,7 @@ export class FishingScene extends Phaser.Scene {
     const fight = this.auth.fight!;
     const def = fight.fish;
     const slipAt = 28 + 70 * s.drag * fight.gear.maxDrag;
-    const netPossible = !this.netOut && s.dist < 6 && s.fishStamina <= 45;
+    const netPossible = !this.netOut && s.dist < 4.2 && s.fishStamina <= 40;
     this.fightHud.update(s, `${def.name} ~${fmtKg(fight.weight)}`, fight.prof.name, fight.diff, slipAt, netPossible);
     this.hud.prompt(null);
     this.hud.hint(this.auth.profile.settings.hints
