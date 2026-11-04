@@ -14,7 +14,7 @@ export const SEQ = {
 } as const;
 
 // Phase 1 scope: three species
-export const FISH_ART = ['ro_phi', 'ca_tre', 'ca_loc'];
+export const FISH_ART = ['ro_phi', 'ca_tre', 'ca_loc', 'ca_chep', 'tram_co'];
 
 export function preloadAll(load: Phaser.Loader.LoaderPlugin) {
   // backgrounds

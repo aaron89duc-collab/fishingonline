@@ -37,6 +37,7 @@ export interface Settings {
   volume: number; // 0..1
   sensitivity: number; // pan / steer sensitivity 0.5..2
   showDebug: boolean;
+  difficulty?: 'easy' | 'normal' | 'hard';
 }
 
 export interface QuestProgress { id: string; progress: number; done: boolean; claimed: boolean }
@@ -50,7 +51,7 @@ export interface Profile {
   reputation: number;
   baits: Record<BaitId, number>;
   owned: string[];
-  equip: { rod: string; reel: string; line: string; float: string };
+  equip: { rod: string; reel: string; line: string; float: string; net?: string };
   bait: BaitId;
   depth: number;
   zone: ZoneId;
@@ -65,15 +66,15 @@ export interface Profile {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  assist: false, hints: true, highContrastFloat: false, autoNightFloat: true, shake: true, volume: 0.7, sensitivity: 1, showDebug: false,
+  assist: false, hints: true, highContrastFloat: false, autoNightFloat: true, shake: true, volume: 0.7, sensitivity: 1, showDebug: false, difficulty: 'normal',
 };
 
 export function newProfile(): Profile {
   return {
     v: 1, name: 'Người câu', money: 300, xp: 0, level: 1, reputation: 0,
     baits: { giun: 30, ngo: 10, cam: 5, tep: 0, moi_gia: 0 },
-    owned: ['can_nhe', 'may_nho', 'day_manh', 'phao_dai', 'phao_tuong_phan'],
-    equip: { rod: 'can_nhe', reel: 'may_nho', line: 'day_manh', float: 'phao_dai' },
+    owned: ['can_nhe', 'can_trung', 'can_manh', 'may_nho', 'may_lon', 'day_manh', 'day_vua', 'day_du', 'phao_dai', 'phao_tuong_phan', 'vot_nho', 'vot_lon'],
+    equip: { rod: 'can_trung', reel: 'may_nho', line: 'day_vua', float: 'phao_dai', net: 'vot_nho' },
     bait: 'giun', depth: 1.0, zone: 'bo_co',
     journal: {}, catches: [], processed: [],
     settings: { ...DEFAULT_SETTINGS },

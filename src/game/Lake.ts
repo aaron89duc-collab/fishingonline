@@ -16,6 +16,7 @@ export class Lake {
   private t = 0;
   private rng = new Rng(7);
   night = 0;
+  nightAlpha = 0;
 
   constructor(private scene: Phaser.Scene, public zone: ZoneDef, private persp: Perspective) {
     this.worldWidth = zone.worldWidth;
@@ -117,7 +118,8 @@ export class Lake {
     this.night = night;
     const warm = (h > 5 && h < 8 ? 1 - Math.abs(h - 6.3) / 1.7 : 0) + (h > 16 && h < 19.5 ? 1 - Math.abs(h - 18) / 1.6 : 0);
     this.warm.setAlpha(Phaser.Math.Clamp(warm, 0, 1) * 0.12);
-    this.tint.setAlpha(night * 0.55);
+    this.tint.setAlpha(0); // night darkening is drawn once over world + hands in the UI scene (see FishingScene)
+    this.nightAlpha = night * 0.55;
 
     // ambient sparkles on water (sun glint) and creatures
     this.sparkleT -= dt;

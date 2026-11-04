@@ -136,6 +136,19 @@ export class RodRig {
     return { x: img.x + v.x, y: img.y + v.y };
   }
 
+  /** landing mini-game: the net follows the mouse while F is held out */
+  holdNet(on: boolean, x = 0, y = 0, dt = 0.016) {
+    const n = this.net;
+    if (!on) {
+      if (n.visible && !this.scene.tweens.isTweening(n)) n.setPosition(n.x - 2400 * dt, n.y + 1600 * dt);
+      if (n.y > 1240) n.setVisible(false);
+      return;
+    }
+    if (!n.visible) n.setVisible(true).setPosition(-300, 1250).setRotation(-0.6).setAlpha(1);
+    const k = Math.min(1, dt * 9);
+    n.setPosition(n.x + (x - 180 - n.x) * k, n.y + (y + 40 - n.y) * k).setRotation(-0.15);
+  }
+
   showNet(x: number, y: number, done: () => void) {
     const n = this.net;
     n.setVisible(true).setPosition(-300, 1250).setRotation(-0.6).setAlpha(1);

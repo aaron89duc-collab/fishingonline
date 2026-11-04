@@ -22,10 +22,70 @@ export const fmtHour = (h: number) => {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 };
 
-/** Nine-slice panel from UI kit art (UI-04 / UI-09). */
+/** Box styles matching the UI kit art (UI-04 panel, UI-09 result, UI-05 toast, UI-08 buttons). */
+const STYLE: Record<string, { fill: number; fillA: number; stroke: number; strokeW: number; radius: number | 'pill' }> = {
+  ui_panel_info: { fill: 0x0f2530, fillA: 0.92, stroke: 0x2ec4b6, strokeW: 3, radius: 20 },
+  ui_panel_result: { fill: 0x10242e, fillA: 0.96, stroke: 0xf2c94c, strokeW: 4, radius: 22 },
+  ui_toast: { fill: 0x0f2530, fillA: 0.9, stroke: 0x2ec4b6, strokeW: 3, radius: 'pill' },
+  ui_button_square: { fill: 0x165a63, fillA: 0.95, stroke: 0xbfe3ea, strokeW: 3, radius: 16 },
+  ui_button_round: { fill: 0x165a63, fillA: 0.92, stroke: 0xbfe3ea, strokeW: 4, radius: 'pill' },
+  ui_slot: { fill: 0x122a33, fillA: 0.95, stroke: 0x6f8f96, strokeW: 2, radius: 14 },
+  ui_slot_selected: { fill: 0x122a33, fillA: 0.95, stroke: 0xf2c94c, strokeW: 3, radius: 14 },
+};
+
+/**
+ * Rounded box drawn with Graphics. Replaces Phaser's NineSlice (WebGL-only) so the whole UI works on the Canvas renderer.
+ * Position = origin point; origin works like Image.setOrigin.
+ */
+export class Box extends Phaser.GameObjects.Graphics {
+  bw: number;
+  bh: number;
+  ox = 0.5;
+  oy = 0.5;
+  private st: (typeof STYLE)[string];
+  private fillOverride?: number;
+  constructor(scene: Phaser.Scene, x: number, y: number, w: number, h: number, key = 'ui_panel_info', fill?: number) {
+    super(scene, { x, y });
+    this.bw = w;
+    this.bh = h;
+    this.st = STYLE[key] ?? STYLE.ui_panel_info;
+    this.fillOverride = fill;
+    this.redraw();
+    scene.add.existing(this);
+  }
+  private redraw() {
+    const { fillA, stroke, strokeW, radius } = this.st;
+    const fill = this.fillOverride ?? this.st.fill;
+    const w = this.bw, h = this.bh;
+    const r = radius === 'pill' ? Math.min(w, h) / 2 : Math.min(radius, w / 2, h / 2);
+    const x = -this.ox * w, y = -this.oy * h;
+    this.clear();
+    this.fillStyle(fill, fillA).fillRoundedRect(x, y, w, h, r);
+    this.fillStyle(0xffffff, 0.06).fillRoundedRect(x + 4, y + 4, w - 8, Math.max(2, h * 0.42), { tl: r, tr: r, bl: 6, br: 6 });
+    this.lineStyle(strokeW, stroke, 0.95).strokeRoundedRect(x, y, w, h, r);
+  }
+  setOrigin(ox: number, oy = ox) {
+    this.ox = ox;
+    this.oy = oy;
+    this.redraw();
+    return this;
+  }
+  setBoxSize(w: number, h: number) {
+    this.bw = w;
+    this.bh = h;
+    this.redraw();
+    return this;
+  }
+  setFill(color: number) {
+    this.fillOverride = color;
+    this.redraw();
+    return this;
+  }
+}
+
 export function panel(scene: Phaser.Scene, x: number, y: number, w: number, h: number, key = 'ui_panel_info', alpha = 0.96) {
-  const p = scene.add.nineslice(x, y, key, undefined, w, h, 28, 28, 28, 28);
-  p.setOrigin(0, 0).setAlpha(alpha);
+  const p = new Box(scene, x, y, w, h, key).setOrigin(0, 0);
+  p.setAlpha(alpha);
   return p;
 }
 
@@ -34,7 +94,7 @@ export interface ButtonOpts {
 }
 
 export class Button extends Phaser.GameObjects.Container {
-  bg: Phaser.GameObjects.NineSlice;
+  bg: Box;
   label: Phaser.GameObjects.Text;
   icon?: Phaser.GameObjects.Image;
   private onClick: () => void;
@@ -47,8 +107,7 @@ export class Button extends Phaser.GameObjects.Container {
     this.w = o.w ?? 240;
     this.h = o.h ?? 64;
     this.onClick = onClick;
-    this.bg = scene.add.nineslice(0, 0, o.key ?? 'ui_toast', undefined, this.w, this.h, 30, 30, 20, 20);
-    if (o.color !== undefined) this.bg.setTint(o.color);
+    this.bg = new Box(scene, 0, 0, this.w, this.h, o.key ?? 'ui_toast', o.color);
     this.add(this.bg);
     let lx = 0;
     if (o.icon) {
@@ -96,24 +155,30 @@ export function iconButton(scene: Phaser.Scene, x: number, y: number, icon: stri
   return b;
 }
 
-/** Simple horizontal bar with fill clipped by width (UI-01..03 art). */
-export class Bar extends Phaser.GameObjects.Container {
-  private fill: Phaser.GameObjects.Image;
-  private bgImg: Phaser.GameObjects.Image;
-  constructor(scene: Phaser.Scene, x: number, y: number, w: number, h: number, fillKey: string) {
-    super(scene, x, y);
-    this.bgImg = scene.add.image(0, 0, 'ui_bar_bg').setOrigin(0, 0.5).setDisplaySize(w, h);
-    this.fill = scene.add.image(0, 0, fillKey).setOrigin(0, 0.5).setDisplaySize(w, h);
-    this.add([this.bgImg, this.fill]);
-    this.setSize(w, h);
+/** Horizontal bar drawn with Graphics (colour changes work on any renderer). */
+export class Bar extends Phaser.GameObjects.Graphics {
+  private v = 0;
+  private col: number;
+  constructor(scene: Phaser.Scene, x: number, y: number, private bw: number, private bh: number, fillKey: string) {
+    super(scene, { x, y });
+    this.col = fillKey.includes('tension') ? 0xff5a3c : fillKey.includes('cast') ? 0x3fa7ff : fillKey.includes('stamina') ? 0x45c97a : 0xd7e2e6;
+    this.draw(this.col);
     scene.add.existing(this);
   }
-  set(v: number, tint?: number) {
-    const f = Phaser.Math.Clamp(v, 0, 1);
-    const tex = this.fill.texture.getSourceImage() as HTMLImageElement;
-    this.fill.setCrop(0, 0, tex.width * f, tex.height);
-    if (tint !== undefined) this.fill.setTint(tint);
-    else this.fill.clearTint();
+  private draw(col: number) {
+    const r = this.bh / 2;
+    this.clear();
+    this.fillStyle(0x0b1a20, 0.9).fillRoundedRect(0, -this.bh / 2, this.bw, this.bh, r);
+    const fw = this.bw * this.v;
+    if (fw > 1) {
+      this.fillStyle(col, 1).fillRoundedRect(0, -this.bh / 2, Math.max(fw, Math.min(this.bh, this.bw)), this.bh, Math.min(r, fw / 2));
+      this.fillStyle(0xffffff, 0.22).fillRoundedRect(2, -this.bh / 2 + 2, Math.max(0, fw - 4), this.bh * 0.35, Math.min(r, fw / 2));
+    }
+    this.lineStyle(2, 0x5f7e86, 0.9).strokeRoundedRect(0, -this.bh / 2, this.bw, this.bh, r);
+  }
+  set(v: number, color?: number) {
+    this.v = Phaser.Math.Clamp(v, 0, 1);
+    this.draw(color ?? this.col);
   }
 }
 
@@ -141,7 +206,7 @@ export function toastBox(scene: Phaser.Scene, msg: string, color = COL.text, y =
   const t = txt(scene, 0, 0, msg, 26, color, 700, { align: 'center', wordWrap: { width: 900 } }).setOrigin(0.5);
   const w = Math.min(1000, t.width + 80);
   const h = t.height + 34;
-  const bg = scene.add.nineslice(0, 0, 'ui_toast', undefined, w, h, 30, 30, 20, 20);
+  const bg = new Box(scene, 0, 0, w, h, 'ui_toast');
   c.add([bg, t]);
   c.setAlpha(0);
   scene.tweens.add({ targets: c, alpha: 1, y: y + 8, duration: 220 });

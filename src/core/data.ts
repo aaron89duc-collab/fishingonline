@@ -91,7 +91,7 @@ export const FISH: FishDefinition[] = [
     id: 'ca_loc', name: 'Cá lóc', latin: 'Channa striata', rarity: 'rare',
     minWeight: 0.4, maxWeight: 6, maxLength: 80, preferredBaits: { moi_gia: 1, tep: 0.9, giun: 0.3 },
     depth: [0.2, 1.3], activeHours: hours([[5, 8, 1.8], [17, 20, 1.8], [11, 15, 0.6]]), caution: 0.25, bitePatience: 0.6,
-    nibbles: [0, 1], nibbleStyle: 'predator', fightStyle: 'fast', fightingPower: 1.0, speed: 3.4, stamina: 11,
+    nibbles: [0, 1], nibbleStyle: 'predator', fightStyle: 'fast', fightingPower: 1.0, speed: 2.6, stamina: 11,
     burstFrequency: 2.6, obstacleSeeking: 0.8, jumps: true, pricePerKg: 80, xp: 32, art: 'fish_ca_loc',
     note: 'Phục kích gần cỏ, tấn công nhanh. Bùng tốc, đổi hướng gắt, hay lao vào bụi.',
   },
@@ -148,13 +148,14 @@ export const BAITS: BaitDef[] = [
 ];
 export const BAIT_BY_ID: Record<BaitId, BaitDef> = Object.fromEntries(BAITS.map((b) => [b.id, b])) as Record<BaitId, BaitDef>;
 
-export type GearSlot = 'rod' | 'reel' | 'line' | 'float';
+export type GearSlot = 'rod' | 'reel' | 'line' | 'float' | 'net';
 export interface GearDef {
   id: string; slot: GearSlot; name: string; price: number; desc: string;
   maxCast?: number; power?: number; sensitivity?: number; // rod
   reelSpeed?: number; drag?: number; capacity?: number; // reel
   strength?: number; stealth?: number; // line
   floatKey?: string; // float texture
+  netSize?: number; // landing net radius (m)
   minLevel?: number;
 }
 export const GEAR: GearDef[] = [
@@ -166,6 +167,8 @@ export const GEAR: GearDef[] = [
   { id: 'day_manh', slot: 'line', name: 'Dây cước mảnh 0.20', price: 0, strength: 0.85, stealth: 1.15, desc: 'Khó thấy dưới nước, dễ đứt.' },
   { id: 'day_vua', slot: 'line', name: 'Dây cước 0.28', price: 350, strength: 1.05, stealth: 1.0, desc: 'Dây đa dụng.' },
   { id: 'day_du', slot: 'line', name: 'Dây dù bện PE', price: 1200, strength: 1.4, stealth: 0.85, desc: 'Rất bền, cá dễ thấy hơn.', minLevel: 3 },
+  { id: 'vot_nho', slot: 'net', name: 'Vợt nhỏ 40 cm', price: 0, netSize: 0.35, desc: 'Nhẹ, đủ cho cá dưới 3 kg.' },
+  { id: 'vot_lon', slot: 'net', name: 'Vợt lớn 60 cm', price: 0, netSize: 0.55, desc: 'Cho cá chép, trắm cỡ lớn.' },
   { id: 'phao_dai', slot: 'float', name: 'Phao dài đỏ trắng', price: 0, floatKey: 'float_long_basic', desc: 'Phao cơ bản, nhạy.' },
   { id: 'phao_tuong_phan', slot: 'float', name: 'Phao tương phản cao', price: 0, floatKey: 'float_long_contrast', desc: 'Hồng – đen, dễ nhìn trên nước.' },
   { id: 'phao_dem', slot: 'float', name: 'Phao phát sáng', price: 300, floatKey: 'float_long_night_glow', desc: 'Sáng trong đêm.' },
@@ -202,7 +205,7 @@ export const ZONES: ZoneDef[] = [
     water: [[0, 470], [2880, 470], [2880, 1000], [2300, 1000], [2050, 930], [800, 930], [560, 1000], [0, 1000]],
     snags: [{ x: 800, y: 640, rx: 190, ry: 42 }, { x: 2080, y: 610, rx: 170, ry: 36 }, { x: 1470, y: 535, rx: 90, ry: 16 }],
     snagChance: 0.75, shallow: 0.8, deep: 2.4, current: 0, baseBite: 0.11,
-    fish: { ro_phi: 3, ca_tre: 1.5, ca_loc: 1.3 },
+    fish: { ro_phi: 3, ca_tre: 1.4, ca_loc: 1.2, ca_chep: 1.2, tram_co: 0.7 },
   },
   {
     id: 'cau_go', name: 'Cầu gỗ', minLevel: 2, desc: 'Nước sâu hơn dưới chân cầu, cá chép và mè hay về.', kind: 'plate', plate: 'zone_cau_go',
@@ -237,7 +240,7 @@ export const ZONES: ZoneDef[] = [
 export const ZONE_BY_ID: Record<ZoneId, ZoneDef> = Object.fromEntries(ZONES.map((z) => [z.id, z])) as Record<ZoneId, ZoneDef>;
 
 /** Phase 1 scope: one zone, three species, one basic loadout */
-export const MVP_FISH = ['ro_phi', 'ca_tre', 'ca_loc'];
+export const MVP_FISH = ['ro_phi', 'ca_tre', 'ca_loc', 'ca_chep', 'tram_co'];
 
 export const xpForLevel = (lvl: number) => 120 * ((lvl - 1) * lvl) / 2; // total xp needed to reach lvl
 export const MAX_LEVEL = 20;

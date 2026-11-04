@@ -1,7 +1,8 @@
 import { Rng, clamp, uid } from './rng';
 import { BAIT_BY_ID, FISH_BY_ID, GEAR_BY_ID, ZONE_BY_ID, type BaitId, type FishDefinition, type GearDef, type ZoneDef, type ZoneId } from './data';
 import { BiteSession, type BiteEvent, type HookResult } from './bite';
-import { FightSim, type FightInput, type FightState } from './fight';
+import { FishFight, DIFFICULTY, type FightControls, type FishFightState, type Difficulty } from './fishFight';
+import type { StrikeDir } from './bite';
 import { Perspective, inEllipse, pointInPolygon, waterDepth } from './perspective';
 import { SaveStore, type CatchRecord, type Profile } from './profile';
 import { School, type FishAgent, type Bait } from './school';
@@ -17,7 +18,7 @@ export interface CastResult {
   outcome: 'water' | 'bank' | 'snag';
   waterDepth: number; onBottom: boolean; reason?: string;
 }
-export interface Loadout { rod: GearDef; reel: GearDef; line: GearDef; float: GearDef }
+export interface Loadout { rod: GearDef; reel: GearDef; line: GearDef; float: GearDef; net: GearDef }
 export type AuthorityEvent = BiteEvent | { type: 'agent_arrived'; species: string } | { type: 'agent_fled'; species: string };
 
 export class LocalAuthority {
@@ -27,7 +28,7 @@ export class LocalAuthority {
   rng = new Rng();
   school!: School;
   bite: BiteSession | null = null;
-  fight: FightSim | null = null;
+  fight: FishFight | null = null;
   cast: CastResult | null = null;
   private biter: FishAgent | null = null;
   hour = 6.5;
@@ -42,8 +43,13 @@ export class LocalAuthority {
   }
 
   loadout(): Loadout {
-    // Phase 1: one basic loadout
-    return { rod: GEAR_BY_ID.can_trung, reel: GEAR_BY_ID.may_nho, line: GEAR_BY_ID.day_vua, float: GEAR_BY_ID.phao_dai };
+    const e = this.profile.equip;
+    const g = (id: string, fb: string) => GEAR_BY_ID[id] ?? GEAR_BY_ID[fb];
+    return { rod: g(e.rod, 'can_trung'), reel: g(e.reel, 'may_nho'), line: g(e.line, 'day_vua'), float: g(e.float, 'phao_dai'), net: g(e.net ?? 'vot_nho', 'vot_nho') };
+  }
+
+  difficulty(): Difficulty {
+    return this.profile.settings.difficulty ?? 'normal';
   }
 
   enterZone(id: ZoneId, vanishX: number) {
@@ -143,18 +149,18 @@ export class LocalAuthority {
     return this.cast?.outcome === 'water' && (this.profile.stats.baitLost ?? 0) > 0;
   }
 
-  hook(): HookResult {
+  hook(dir: StrikeDir = 'up', strong = false): HookResult {
     if (!this.bite || !this.cast) return { ok: false, state: 'WAITING', quality: 0, reason: 'Chưa có phao dưới nước.' };
-    const res = this.bite.hook();
+    const res = this.bite.hook(dir, strong);
     const sp = this.bite.species;
     if (res.ok && sp && this.biter) {
       this.biter.state = 'hooked';
       const lo = this.loadout();
       const cover = this.zone.snags.length ? 0.6 : 0.35;
-      this.fight = new FightSim(sp, this.biter.weight, {
-        rodPower: lo.rod.power ?? 1, reelSpeed: lo.reel.reelSpeed ?? 1, drag: lo.reel.drag ?? 0.5,
-        capacity: lo.reel.capacity ?? 70, lineStrength: lo.line.strength ?? 1,
-      }, this.cast.d, this.cast.lateral, this.rng, cover, res.quality);
+      this.fight = new FishFight(sp, this.biter.weight, {
+        rodPower: lo.rod.power ?? 1, reelSpeed: lo.reel.reelSpeed ?? 1, maxDrag: lo.reel.drag ?? 0.8,
+        capacity: lo.reel.capacity ?? 70, lineStrength: lo.line.strength ?? 1, netSize: lo.net.netSize ?? 0.35,
+      }, this.cast.d, this.cast.lateral, this.rng, this.difficulty(), res.quality * 100, cover);
     } else if (!res.ok && this.biter) {
       this.school.flee(this.biter);
       this.biter = null;
@@ -168,7 +174,7 @@ export class LocalAuthority {
     return Math.round((def.minWeight + (def.maxWeight - def.minWeight) * u) * 100) / 100;
   }
 
-  fightTick(dt: number, input: FightInput): FightState | null {
+  fightTick(dt: number, input: FightControls): FishFightState | null {
     if (!this.fight) return null;
     const s = this.fight.update(dt, input);
     if (this.biter) {
@@ -187,10 +193,9 @@ export class LocalAuthority {
     return s;
   }
 
-  tryLand(): { ok: boolean; reason: string; record?: CatchRecord } {
-    if (!this.fight || !this.biter) return { ok: false, reason: '' };
-    const r = this.fight.tryLand();
-    if (!r.ok) return r;
+  /** called once the fight reports phase 'landed' (net scoop succeeded) */
+  takeCatch(): { ok: boolean; reason: string; record?: CatchRecord } {
+    if (!this.fight || !this.biter || this.fight.s.phase !== 'landed') return { ok: false, reason: '' };
     const a = this.biter;
     const def = a.def;
     const length = Math.round(def.maxLength * Math.cbrt(a.weight / def.maxWeight) * this.rng.range(0.96, 1.04));
@@ -252,3 +257,5 @@ export class LocalAuthority {
     return FISH_BY_ID[id];
   }
 }
+
+export { DIFFICULTY };
