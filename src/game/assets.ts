@@ -14,9 +14,13 @@ export const SEQ = {
 } as const;
 
 // Phase 1 scope: three species
-export const FISH_ART = ['ro_phi', 'ca_tre', 'ca_loc'];
+export const FISH_ART = ['ro_phi', 'ca_tre', 'ca_loc', 'ca_chep', 'tram_co'];
 
 export function preloadAll(load: Phaser.Loader.LoaderPlugin) {
+  load.image('weather_sky', `${A}weather/overcast_sky.png`);
+  load.image('weather_drop', `${A}weather/rain_drop.svg`);
+  load.image('weather_ring', `${A}weather/rain_ring.svg`);
+  load.image('weather_mist', `${A}weather/mist.svg`);
   // backgrounds
   for (const k of ['sky.jpg', 'mtn_far.png', 'mtn_near.png', 'treeline.png', 'water.jpg', 'reflection.png'])
     load.image('boco_' + k.split('.')[0], `${A}bg/boco/${k}`);

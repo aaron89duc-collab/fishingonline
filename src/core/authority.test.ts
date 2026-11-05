@@ -36,14 +36,30 @@ describe('authority + school', () => {
     a.enterZone('bo_co', 1440);
     const r = castAndWait(a, true);
     expect(r.t).toBeGreaterThan(0);
-    const h = a.hook();
+    for (let t = 0; t < 0.5; t += 0.05) a.tick(0.05, 8); // wait for the ideal part of the timeline
+    const h = a.hook(a.bite!.bestStrike(), false);
+    expect(h.ok).toBe(true);
     expect(a.fight).not.toBeNull();
-    void h;
     let landed = false;
-    for (let t = 0; t < 200 && a.fight; t += 1 / 30) {
-      const s = a.fightTick(1 / 30, { steer: -Math.sign(a.fight.s.fishDirection || 1), reel: !a.fight.s.headShake && a.fight.s.tension < 62 ? 1 : 0, release: a.fight.s.tension > 80 || (a.fight.s.headShake && a.fight.s.tension > 60) ? 1 : 0 })!;
-      if (s.phase === 'landing') { const res = a.tryLand(); if (!res.ok) continue; if (res.ok) { landed = true; const id = res.record!.id; expect(a.decide(id, 'release')).not.toBeNull(); expect(a.decide(id, 'release')).toBeNull(); break; } }
-      if (s.phase === 'escaped') break;
+    for (let t = 0; t < 300 && a.fight; t += 1 / 30) {
+      const s = a.fight.s;
+      const mid = (s.idealAngle[0] + s.idealAngle[1]) / 2;
+      const danger = s.behavior === 'BURST' || s.next === 'BURST' || s.lineTension > 82;
+      const st = a.fightTick(1 / 30, {
+        balance: Math.max(-1, Math.min(1, -s.balance / 22 - s.fishDir * 0.3)), rodCmd: Math.abs(mid - s.rodAngle) > 0.05 ? Math.sign(mid - s.rodAngle) : 0,
+        dragCmd: danger ? (s.drag > 0.3 ? -1 : 0) : s.drag < 0.6 ? 1 : 0, reel: !danger && s.lineTension < 62 ? 2 : 0,
+        netOut: s.dist < 4.2 && s.fishStamina < 40, netX: s.landing.fishX, scoop: s.phase === 'landing' && s.landing.window !== 'lunge' && s.landing.ready > 0.6,
+      })!;
+      if (st.phase === 'landed') {
+        const res = a.takeCatch();
+        expect(res.ok).toBe(true);
+        const id = res.record!.id;
+        expect(a.decide(id, 'release')).not.toBeNull();
+        expect(a.decide(id, 'release')).toBeNull();
+        landed = true;
+        break;
+      }
+      if (st.phase === 'escaped') break;
     }
     expect(landed).toBe(true);
   });

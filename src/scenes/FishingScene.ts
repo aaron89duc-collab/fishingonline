@@ -1,25 +1,25 @@
 import Phaser from 'phaser';
 import { LocalAuthority, type CastResult } from '../core/authority';
-import { ESCAPE_TEXT, type FightInput, type FightState } from '../core/fight';
+import { ESCAPE_TEXT, BEHAVIOR_LABEL, type FightControls, type FishFightState } from '../core/fishFight';
 import { BAIT_BY_ID, RARITY_LABEL, type BaitId } from '../core/data';
 import { clamp, approach, Rng } from '../core/rng';
-import type { FloatPose } from '../core/bite';
+import { MOUTH, MOUTH_TEXT, type FloatPose, type StrikeDir } from '../core/bite';
+import type { CatchRecord } from '../core/profile';
+import { FightHud } from '../game/FightHud';
 import { Lake } from '../game/Lake';
 import { RodRig } from '../game/RodRig';
 import { FloatView } from '../game/FloatView';
 import { Hud } from '../game/Hud';
-import { helpPanel, resultCard } from '../game/panels';
+import { helpPanel, loadoutPanel, resultCard } from '../game/panels';
 import { fishArtKey, shadowKey } from '../game/assets';
 import { COL, fmtKg } from '../game/ui';
 import { sfx } from '../game/sfx';
 import type { UIScene } from './UIScene';
+import { Weather, type WeatherKind } from '../core/weather';
+import { WeatherView } from '../game/WeatherView';
 
 type Mode = 'idle' | 'charging' | 'flight' | 'wait' | 'stuck' | 'fight' | 'landing' | 'result' | 'retrieve' | 'escaped';
 
-const PHASE_LABEL: Record<string, string> = {
-  hooked: 'Giật mạnh sau khi dính lưỡi', run: 'Đang chạy dài', struggle: 'Giằng co', tired: 'Đã mệt — thu dây đều',
-  final_burst: 'Bùng lực lần cuối!', surge: 'Vùng lên dữ dội!', landing: 'Sát bờ — vớt ngay!', landed: '', escaped: '',
-};
 /** QA only: ?speed=4 runs gameplay time faster (used by automated tests) */
 const QA_SPEED = Math.min(8, Math.max(1, Number(new URLSearchParams(location.search).get('speed')) || 1));
 const IDLE_POSE: FloatPose = { sink: 0, tilt: 0, dx: 0, tremor: 0 };
@@ -32,6 +32,7 @@ export class FishingScene extends Phaser.Scene {
   lake!: Lake;
   float!: FloatView;
   hangFloat!: Phaser.GameObjects.Image;
+  private nightShade!: Phaser.GameObjects.Rectangle;
   private mode: Mode = 'idle';
   private vanishX = 1440;
   private aim = { x: 1440, y: 640, sx: 960, sy: 640 };
@@ -45,31 +46,48 @@ export class FishingScene extends Phaser.Scene {
   private wind = 0.6;
   private windTarget = 0.6;
   private windT = 20;
-  private fightState: FightState | null = null;
+  private fightState: FishFightState | null = null;
+  private fightHud!: FightHud;
+  private strike: { t0: number; dir: StrikeDir } | null = null;
+  private reelGear = 2;
+  private netOut = false;
+  private scoopReq = false;
+  private lastBehavior = '';
+  private camTilt = 0;
   private input2: { reel: boolean; release: boolean; left: boolean; right: boolean; touchReel: boolean; touchRelease: boolean } = { reel: false, release: false, left: false, right: false, touchReel: false, touchRelease: false };
-  private steer = 0;
-  private mouseSteer = 0;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private shadows = new Map<number, Phaser.GameObjects.Image>();
   private wake!: Phaser.GameObjects.Sprite;
   private modal: Phaser.GameObjects.Container | null = null;
   private hintedNibble = false;
   private alert = false;
-  private lastPhase = '';
   private ambT = 1;
   private rng = new Rng();
   private fightCamX = 0;
   private wasRed = false;
+  weather!: Weather;
+  private weatherView!: WeatherView;
+  private forecastShown = '';
+  private lastFightMessage = '';
+  private lastFightMessageAt = 0;
+  private surfaceFish!: Phaser.GameObjects.Image;
+  private netGuide!: Phaser.GameObjects.Graphics;
 
   constructor() {
     super('fishing');
   }
 
   create() {
+    this.hud = undefined!;
+    this.modal = null;
     this.auth = new LocalAuthority();
     const zone = 'bo_co';
     this.auth.enterZone(zone, this.vanishX);
     this.lake = new Lake(this, this.auth.zone, this.auth.persp);
+    const requested = new URLSearchParams(location.search).get('weather');
+    const initial: WeatherKind = requested === 'rain' || requested === 'cloudy' ? requested : 'sunny';
+    this.weather = new Weather(new Rng(), initial);
+    this.weatherView = new WeatherView(this, this.auth.persp.H);
     const cam = this.cameras.main;
     cam.setBounds(0, 0, this.lake.worldWidth, 1080);
     cam.scrollX = (this.lake.worldWidth - 1920) / 2;
@@ -79,27 +97,40 @@ export class FishingScene extends Phaser.Scene {
     this.aimRing = this.add.image(0, 0, 'target_ring').setDepth(25).setAlpha(0);
     this.aimDot = this.add.image(0, 0, 'traj_dot').setDepth(25).setAlpha(0).setTint(0xffd36b);
     this.wake = this.add.sprite(0, 0, 'line_wake_00').setDepth(29).setVisible(false).setAlpha(0.8);
+    this.surfaceFish = this.add.image(0, 0, 'fish_ro_phi').setDepth(30).setVisible(false);
 
     // screen-space scene for HUD / rig / input
     this.scene.launch('ui');
     this.ui = this.scene.get('ui') as UIScene;
     this.ui.events.once(Phaser.Scenes.Events.CREATE, () => this.setupUi());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scene.stop('ui'));
+    this.netOut = false;
+    this.strike = null;
+    this.fightState = null;
+    this.shadows.clear();
+    this.trajDots = [];
+    this.input2 = { reel: false, release: false, left: false, right: false, touchReel: false, touchRelease: false };
+    this.mode = 'idle';
+    this.forecastShown = '';
   }
 
   private setupUi() {
     const u = this.ui;
     const touch = this.sys.game.device.input.touch && !this.sys.game.device.os.desktop;
     this.rig = new RodRig(u);
+    this.netGuide = u.add.graphics().setDepth(515);
+    // darkens world + hands + line at night, but stays under the HUD (depth 700)
+    this.nightShade = u.add.rectangle(0, 0, 1920, 1080, 0x0a1838, 0).setOrigin(0).setDepth(600);
     this.rig.shake = this.auth.profile.settings.shake;
     this.hangFloat = u.add.image(0, 0, this.floatKey()).setOrigin(0.5, 0).setScale(0.42).setDepth(495);
     for (let i = 0; i < 10; i++) this.trajDots.push(u.add.image(0, 0, 'traj_dot').setDepth(480).setAlpha(0));
     this.hud = new Hud(u, { help: () => this.openHelp(), menu: () => this.toMenu() }, touch);
+    this.fightHud = new FightHud(u);
     const tm = this.hud.touchMain, ta = this.hud.touchAlt;
     tm.on('pointerdown', () => { this.input2.touchReel = true; this.onPrimaryDown(true); });
     tm.on('pointerup', () => (this.input2.touchReel = false));
     tm.on('pointerout', () => (this.input2.touchReel = false));
-    ta.on('pointerdown', () => { this.input2.touchRelease = true; if (this.mode === 'wait' || this.mode === 'stuck') this.retrieve(); });
+    ta.on('pointerdown', () => { this.input2.touchRelease = true; if (this.mode === 'stuck') this.retrieve(); });
     ta.on('pointerup', () => (this.input2.touchRelease = false));
     ta.on('pointerout', () => (this.input2.touchRelease = false));
 
@@ -115,10 +146,13 @@ export class FishingScene extends Phaser.Scene {
       else this.onPrimaryUp();
     });
     inp.on('pointermove', (p: Phaser.Input.Pointer) => this.onMove(p.x, p.y));
-    inp.on('wheel', (_p: unknown, _o: unknown, _dx: number, dy: number) => this.changeDepth(dy > 0 ? -0.25 : 0.25));
+    inp.on('wheel', (_p: unknown, _o: unknown, _dx: number, dy: number) => {
+      if (this.mode === 'fight') this.setGear(this.reelGear + (dy > 0 ? -1 : 1));
+      else this.changeDepth(dy > 0 ? -0.25 : 0.25);
+    });
     const kb = inp.keyboard!;
-    this.keys = kb.addKeys('W,A,S,D,R,SPACE,LEFT,RIGHT,UP,DOWN,H,ONE,TWO,OPEN_BRACKET,CLOSED_BRACKET,ESC,F1') as Record<string, Phaser.Input.Keyboard.Key>;
-    kb.on('keydown-SPACE', (e: KeyboardEvent) => { e.preventDefault(); sfx.unlock(); if (!this.modal) this.onPrimaryDown(false); });
+    this.keys = kb.addKeys('W,A,S,D,Q,E,F,L,R,SPACE,LEFT,RIGHT,UP,DOWN,H,ONE,TWO,THREE,OPEN_BRACKET,CLOSED_BRACKET,ESC,F1') as Record<string, Phaser.Input.Keyboard.Key>;
+    kb.on('keydown-SPACE', (e: KeyboardEvent) => { e.preventDefault(); sfx.unlock(); if (!this.modal && !e.repeat) this.onPrimaryDown(false, true); });
     kb.on('keyup-SPACE', () => this.onPrimaryUp());
     kb.on('keydown-R', () => !this.modal && this.retrieve());
     kb.on('keydown-H', () => (this.modal ? this.closeModal() : this.openHelp()));
@@ -126,8 +160,11 @@ export class FishingScene extends Phaser.Scene {
     kb.on('keydown-F1', (e: KeyboardEvent) => { e.preventDefault(); this.auth.profile.settings.showDebug = !this.auth.profile.settings.showDebug; this.auth.save(); });
     kb.on('keydown-OPEN_BRACKET', () => this.changeDepth(-0.25));
     kb.on('keydown-CLOSED_BRACKET', () => this.changeDepth(0.25));
-    kb.on('keydown-ONE', () => this.switchBait('giun'));
-    kb.on('keydown-TWO', () => this.switchBait('tep'));
+    kb.on('keydown-ONE', () => (this.mode === 'fight' ? this.setGear(1) : this.switchBait('giun')));
+    kb.on('keydown-TWO', () => (this.mode === 'fight' ? this.setGear(2) : this.switchBait('tep')));
+    kb.on('keydown-THREE', () => this.mode === 'fight' && this.setGear(3));
+    kb.on('keydown-F', () => this.toggleNet());
+    kb.on('keydown-L', () => (this.modal ? this.closeModal() : this.openLoadout()));
     u.events.on('ui-click', () => sfx.click());
     sfx.setVolume(this.auth.profile.settings.volume);
     this.hud.toast('Chào mừng đến Bờ cỏ! Rê chuột chọn hướng, giữ chuột trái để ném.', COL.text, 4200);
@@ -146,10 +183,9 @@ export class FishingScene extends Phaser.Scene {
     this.aim.sy = sy;
     this.aim.x = sx + cam.scrollX;
     this.aim.y = Math.max(this.auth.persp.H + 18, sy);
-    this.mouseSteer = clamp((sx - 960) / 520, -1, 1);
   }
 
-  private onPrimaryDown(fromTouchBtn: boolean) {
+  private onPrimaryDown(fromTouchBtn: boolean, fromSpace = false) {
     switch (this.mode) {
       case 'idle':
         if (fromTouchBtn) return;
@@ -158,14 +194,17 @@ export class FishingScene extends Phaser.Scene {
         this.over = 0;
         break;
       case 'wait':
-        this.doHook();
+        // Hook Setting: direction from A/D held at the strike, strength from how long the strike is held
+        if (this.strike) break;
+        this.strike = { t0: this.time.now, dir: this.keys.A.isDown || this.keys.LEFT.isDown ? 'left' : this.keys.D.isDown || this.keys.RIGHT.isDown ? 'right' : 'up' };
+        this.rig.impulse(this.strike.dir === 'up' ? 18 : 12);
         break;
       case 'stuck':
         this.retrieve();
         break;
       case 'fight':
-        if (!fromTouchBtn) this.input2.left = true;
-        if (this.fightState?.phase === 'landing') this.doLand();
+        if (this.netOut) this.scoopReq = true;
+        else if (!fromTouchBtn && !fromSpace) this.input2.left = true;
         break;
     }
   }
@@ -173,6 +212,7 @@ export class FishingScene extends Phaser.Scene {
   private onPrimaryUp() {
     this.input2.left = false;
     if (this.mode === 'charging') this.release();
+    if (this.strike && this.mode === 'wait') this.resolveStrike();
   }
 
   private onSecondaryDown() {
@@ -182,7 +222,29 @@ export class FishingScene extends Phaser.Scene {
       return;
     }
     if (this.mode === 'fight') this.input2.right = true;
-    else if (this.mode === 'wait' || this.mode === 'stuck') this.retrieve();
+    else if (this.mode === 'wait') this.input2.right = true;
+    else if (this.mode === 'stuck') this.retrieve();
+  }
+
+  private setGear(g: number) {
+    this.reelGear = clamp(Math.round(g), 1, 3);
+  }
+
+  private toggleNet() {
+    if (this.mode !== 'fight' || this.modal) return;
+    const s = this.fightState;
+    if (!this.netOut && s) {
+      if (s.dist > 4.2) {
+        this.hud.toast(`Cá còn cách ${s.dist.toFixed(1).replace('.', ',')} m — thu dây tới dưới 4 m rồi mới đưa vợt (F).`, '#ffb27a', 1800);
+        return;
+      }
+      if (s.fishStamina > 40) {
+        this.hud.toast(`Cá còn khỏe (sức ${Math.round(s.fishStamina)}%) — làm cá mệt dưới 40% rồi mới đưa vợt.`, '#ffb27a', 1800);
+        return;
+      }
+    }
+    this.netOut = !this.netOut;
+    if (this.netOut) this.input2.left = false;
   }
 
   private changeDepth(delta: number) {
@@ -192,7 +254,7 @@ export class FishingScene extends Phaser.Scene {
     if (c && c.outcome === 'water') {
       c.onBottom = this.auth.profile.depth >= c.waterDepth - 0.05;
       this.auth.bite?.setContext({ baitDepth: Math.min(this.auth.profile.depth, c.waterDepth), onBottom: c.onBottom });
-      this.float.lying = c.onBottom;
+      this.float.lying = false;
       if (c.onBottom) this.hud.toast('Mồi chạm đáy — phao nằm nghiêng (hợp cá trê).', COL.dim, 1800);
     }
   }
@@ -233,7 +295,7 @@ export class FishingScene extends Phaser.Scene {
   private landFloat() {
     const r = this.flight.res!;
     this.float.place(r.x, r.y, this.flight.s1);
-    this.float.lying = r.outcome === 'water' && r.onBottom;
+    this.float.lying = false; // bottom contact unloads the float; it need not lie flat
     const sc = this.auth.persp.scaleAt(r.d);
     if (r.outcome !== 'bank') {
       this.playFx('splash_light', r.x, r.y + 4, sc * 1.6, 0.5, 0.85);
@@ -277,39 +339,49 @@ export class FishingScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------------ hook / fight / land
-  private doHook() {
-    const res = this.auth.hook();
-    this.rig.impulse(34);
+  private resolveStrike() {
+    const st = this.strike;
+    if (!st) return;
+    this.strike = null;
+    const held = (this.time.now - st.t0) * QA_SPEED;
+    this.doHook(st.dir, clamp(0.38 + held / 600, 0.38, 1));
+  }
+
+  private doHook(dir: StrikeDir, strong: boolean | number) {
+    const res = this.auth.hook(dir, strong);
+    this.rig.impulse((typeof strong === 'number' ? 20 + strong * 28 : strong ? 44 : 28) * (dir === 'up' ? 1 : 0.8));
     sfx.hook();
     if (res.ok) {
       this.mode = 'fight';
       this.fightState = this.auth.fight!.s;
-      this.lastPhase = '';
+      this.lastBehavior = '';
       this.wasRed = false;
+      this.netOut = false;
+      this.scoopReq = false;
+      this.reelGear = 2;
       this.fightCamX = this.cameras.main.scrollX;
-      this.hud.toast(res.quality >= 0.6 ? 'Đóng cá chuẩn — lưỡi ăn chắc!' : res.quality >= 0.3 ? 'Dính cá — lưỡi ăn vừa.' : 'Dính cá nhưng lưỡi chỉ móc hờ — cẩn thận!', res.quality >= 0.3 ? '#7ef0c8' : COL.gold, 1800);
+      const q = res.quality;
+      this.hud.toast(q >= 0.6 ? 'Đóng cá chuẩn — lưỡi ăn chắc!' : q >= 0.3 ? 'Dính cá — lưỡi ăn vừa.' : 'Dính cá nhưng lưỡi chỉ móc hờ — cẩn thận!', q >= 0.3 ? '#7ef0c8' : COL.gold, 1800);
+      if (res.reason) this.hud.toast(res.reason, COL.dim, 2200);
       if (this.auth.profile.settings.shake) this.cameras.main.shake(180, 0.004);
       this.playFx('splash_light', this.float.c.x, this.float.y, this.float.scale * 0.8, 0.5, 0.85);
       this.float.hide();
       this.hud.hint('');
     } else {
-      this.hud.toast(res.reason, '#ffb27a', 2000);
+      this.hud.toast(res.reason, '#ffb27a', 2200);
     }
   }
 
-  private doLand() {
-    const r = this.auth.tryLand();
-    if (!r.ok) {
-      if (r.reason) this.hud.toast(r.reason, '#ffb27a', 1300);
-      return;
-    }
-    const rec = r.record!;
+  private onLanded(s: FishFightState) {
+    const r = this.auth.takeCatch();
+    if (!r.ok || !r.record) return;
+    const rec = r.record;
     this.mode = 'landing';
+    this.netOut = false;
     this.hud.hint('');
-    this.hud.showFight(null, PHASE_LABEL);
+    this.fightHud.hide();
     this.hud.prompt(null);
-    const s = this.fightState!;
-    const w = this.auth.persp.toWorld(s.dist, s.lateral);
+    const w = this.auth.persp.toWorld(s.dist, s.landing.fishX);
     const cam = this.cameras.main;
     const sc = this.auth.persp.scaleAt(s.dist);
     this.playFx('splash_strong', w.x, w.y + 10, sc * 1.5, 0.5, 0.85);
@@ -332,7 +404,7 @@ export class FishingScene extends Phaser.Scene {
     });
   }
 
-  private showResult(rec: NonNullable<ReturnType<LocalAuthority['tryLand']>['record']>) {
+  private showResult(rec: CatchRecord) {
     this.mode = 'result';
     this.modal = resultCard(this.ui, this.auth, rec, (choice, info) => {
       this.modal = null;
@@ -353,15 +425,17 @@ export class FishingScene extends Phaser.Scene {
     });
   }
 
-  private onEscaped(s: FightState) {
+  private onEscaped(s: FishFightState) {
     this.mode = 'escaped';
     const reason = s.escapeReason!;
     if (reason === 'line_break') { sfx.snap(); this.rig.impulse(-20); } else sfx.fail();
-    if (this.auth.profile.settings.shake && reason === 'line_break') this.cameras.main.shake(220, 0.006);
-    this.hud.toast((reason === 'line_break' ? 'ĐỨT DÂY! ' : 'CÁ THOÁT! ') + ESCAPE_TEXT[reason], '#ff9a85', 3800);
+    if (this.auth.profile.settings.shake && (reason === 'line_break' || reason === 'balance')) this.cameras.main.shake(reason === 'balance' ? 420 : 220, reason === 'balance' ? 0.012 : 0.006);
+    const head = reason === 'line_break' ? 'ĐỨT DÂY! ' : reason === 'balance' ? 'NGÃ NHÀO! ' : 'CÁ THOÁT! ';
+    this.hud.toast(head + ESCAPE_TEXT[reason], '#ff9a85', 3800);
+    this.netOut = false;
+    this.fightHud.hide();
     const w = this.auth.persp.toWorld(s.dist, s.lateral);
     this.playFx('splash_light', w.x, w.y, this.auth.persp.scaleAt(s.dist) * 1.4, 0.5, 0.85);
-    this.hud.showFight(null, PHASE_LABEL);
     this.hud.prompt(null);
     this.hud.hint('');
     this.wake.setVisible(false);
@@ -390,6 +464,12 @@ export class FishingScene extends Phaser.Scene {
     this.modal = m;
   }
 
+  private openLoadout() {
+    if (this.modal) return;
+    if (this.mode !== 'idle') { this.hud.toast('Thu cần (R) trước khi đổi đồ câu.', COL.dim, 1500); return; }
+    this.modal = loadoutPanel(this.ui, this.auth, () => this.closeModal(), () => undefined);
+  }
+
   private closeModal() {
     if (!this.modal || this.mode === 'result') return;
     this.modal.destroy();
@@ -397,7 +477,7 @@ export class FishingScene extends Phaser.Scene {
   }
 
   private toMenu() {
-    if (this.mode === 'fight' || this.mode === 'result') return;
+    if (this.mode === 'fight' || this.mode === 'landing' || this.mode === 'result') return;
     this.auth.save();
     this.scene.start('menu');
   }
@@ -413,21 +493,30 @@ export class FishingScene extends Phaser.Scene {
     // wind (P1-024)
     this.windT -= dt;
     if (this.windT <= 0) { this.windT = this.rng.range(20, 45); this.windTarget = this.rng.range(-2, 2); }
-    this.wind = approach(this.wind, this.windTarget, 0.2, dt);
+    this.weather.update(dt);
+    this.wind = approach(this.wind, this.windTarget * this.weather.wind, 0.2, dt);
+    if (this.weather.forecast && this.weather.forecast !== this.forecastShown) {
+      this.forecastShown = this.weather.forecast;
+      this.hud.toast(this.weather.forecast + ' — gió và ánh sáng sẽ đổi dần.', COL.dim, 3500);
+    }
+    if (!this.weather.forecast) this.forecastShown = '';
 
     // camera pan within limits (P1-004)
     const panning = this.mode !== 'fight' && this.mode !== 'landing' && this.mode !== 'result' && !this.modal;
     if (panning) {
       let v = 0;
-      if (k.LEFT.isDown || (k.A.isDown && this.mode !== 'charging')) v -= 1;
-      if (k.RIGHT.isDown || (k.D.isDown && this.mode !== 'charging')) v += 1;
+      const ad = this.mode === 'idle' || this.mode === 'stuck'; // in 'wait' A/D chooses the strike direction
+      if (k.LEFT.isDown && !this.strike || (k.A.isDown && ad)) v -= 1;
+      if (k.RIGHT.isDown && !this.strike || (k.D.isDown && ad)) v += 1;
       if (this.input.activePointer && this.ui.input.activePointer.x < 40 && this.ui.input.activePointer.y > 300) v -= 1;
       if (this.ui.input.activePointer.x > 1880 && this.ui.input.activePointer.y > 300) v += 1;
       cam.scrollX = clamp(cam.scrollX + v * 520 * dt * this.auth.profile.settings.sensitivity, 0, this.lake.worldWidth - 1920);
       if (v) this.onMove(this.aim.sx, this.aim.sy);
     }
 
-    this.lake.update(dt, this.hour);
+    this.lake.update(dt, this.hour, this.weather.cloud, this.wind);
+    this.weatherView.update(dt, this.weather, this.auth.persp.H, this.lake.night);
+    this.auth.mendLine(dt, this.mode === 'wait' && (this.input2.right || this.input2.touchRelease), this.wind);
     const evs = this.auth.tick(dt, this.hour);
     this.handleBiteEvents(evs);
     this.updateShadows(dt);
@@ -476,6 +565,8 @@ export class FishingScene extends Phaser.Scene {
         const alert = this.auth.profile.settings.assist && this.auth.bite?.state === 'HOOK_WINDOW';
         if (alert && !this.alert) this.hud.toast('CÁ ĂN MỒI! Đóng cá ngay (click / Space)!', COL.gold, 1200);
         this.alert = !!alert;
+        if (this.strike && this.time.now - this.strike.t0 >= 300 / QA_SPEED) this.resolveStrike();
+        if (this.mode !== 'wait' && this.mode !== 'stuck') break;
         const night = this.lake.night > 0.6;
         this.float.update(dt, this.mode === 'stuck' ? { ...IDLE_POSE, tremor: 0 } : bp, this.mode === 'wait' ? this.wind : 0, this.auth.zone.current, !!alert, night);
         const pull = { x: this.float.topX - cam.scrollX - this.rig.tip.x, y: this.float.topY - this.rig.tip.y };
@@ -491,10 +582,10 @@ export class FishingScene extends Phaser.Scene {
       case 'fight': {
         const s = this.fightTick(dt);
         if (!s) break;
-        tension = s.tension;
-        const w = this.auth.persp.toWorld(s.dist, s.lateral);
+        tension = s.lineTension;
+        const w = this.auth.persp.toWorld(s.dist, s.phase === 'landing' ? s.landing.fishX : s.lateral);
         const pull = { x: w.x - cam.scrollX - this.rig.tip.x, y: w.y - this.rig.tip.y };
-        pose = { theta: -120 + this.steer * 17, bend: 0.06 + (s.tension / 100) * 0.85, pullX: pull.x, pullY: pull.y, reel: s.reelInput };
+        pose = { theta: -135 + s.rodAngle * 45 + s.balance * 0.12, bend: 0.04 + s.rodLoad * 0.8, pullX: pull.x, pullY: pull.y, reel: s.reeling ? s.reelGear / 3 : 0 };
         break;
       }
       case 'landing':
@@ -506,18 +597,23 @@ export class FishingScene extends Phaser.Scene {
         break;
     }
     if (this.mode !== 'charging') this.hud.showCast(null);
+    if (this.mode !== 'fight') {
+      this.fightHud.hide();
+      this.camTilt = approach(this.camTilt, 0, 2, dt);
+    }
+    cam.setRotation(this.camTilt).setZoom(1 + Math.abs(this.camTilt) * 2.2);
+    this.updateNet(dt);
     this.rig.update(dt, pose);
-    const nightK = this.lake.night;
-    const tint = Phaser.Display.Color.GetColor(255 - nightK * 150, 255 - nightK * 140, 255 - nightK * 100);
-    for (const o of this.rig.c.list as Phaser.GameObjects.Image[]) o.setTint?.(tint);
+    this.nightShade.setAlpha(Math.min(0.65, this.lake.nightAlpha + this.weather.cloud * 0.12));
     this.drawLine();
     this.updateHangFloat(dt);
     this.hud.setInfo({
       zone: this.auth.zone.name, hour: this.hour, bait: this.auth.baitName(), baitIcon: BAIT_BY_ID[this.auth.profile.bait].icon,
       hook: 'lưỡi số 6', depth: `${this.auth.profile.depth.toFixed(2).replace('.', ',')} m`, wind: this.wind,
       caught: this.auth.profile.stats.catches, best: this.bestCatch(),
+      weather: this.weather.label,
     });
-    sfx.update(dt, this.mode === 'fight' ? (this.input2.reel ? 1 : 0) : this.mode === 'retrieve' ? 1 : 0, tension, this.lake.night > 0.6);
+    sfx.update(dt, this.mode === 'fight' ? (this.fightState?.reeling ? 1 : 0) : this.mode === 'retrieve' ? 1 : 0, tension, this.lake.night > 0.6);
     this.debug();
   }
 
@@ -536,12 +632,26 @@ export class FishingScene extends Phaser.Scene {
         const st = this.auth.bite?.state;
         if (st === 'NIBBLE') return 'Phao giật nhẹ: cá đang RỈA mồi — chờ thêm, đừng đóng vội!';
         if (st === 'TAKING_BAIT') return 'Phao bị kéo/chìm dần… sắp rồi!';
-        if (st === 'HOOK_WINDOW') return 'PHAO CHÌM HẲN — ĐÓNG CÁ! (click / Space)';
-        return 'Quan sát phao · nhấp nhô đều là sóng · R / chuột phải: thu cần';
+        if (st === 'HOOK_WINDOW') return 'PHAO KÉO / NỔI BẤT THƯỜNG — GIẬT CẦN! (Space · A/D chọn hướng)' + this.strikeGuide();
+        return `Dây chùng ${this.auth.lineSlack.toFixed(2)} m · giữ chuột phải thu dây chùng · R thu cần`;
       }
       case 'stuck': return 'Click hoặc R để thu dây và ném lại';
       default: return '';
     }
+  }
+
+  /** Easy / Normal guides for Hook Setting: timing zone, best direction, mouth type */
+  private strikeGuide(): string {
+    const b = this.auth.bite;
+    if (!b) return '';
+    const diff = this.auth.difficulty();
+    if (diff === 'hard' || !b.species) return '';
+    const z = b.hookZone();
+    const dir = b.bestStrike();
+    const dirTxt = dir === 'up' ? 'giật LÊN' : dir === 'left' ? 'giật sang TRÁI (giữ A)' : 'giật sang PHẢI (giữ D)';
+    const zt = z === 'early' ? 'hơi sớm' : z === 'ideal' ? 'ĐÚNG LÚC' : z === 'late' ? 'sắp muộn!' : '';
+    const mouth = diff === 'easy' ? ` · ${MOUTH_TEXT[MOUTH[b.species.id] ?? 'any']}` : '';
+    return `  ·  [${zt}] ${dirTxt}${mouth}`;
   }
 
   private updateAim(charging: boolean) {
@@ -594,20 +704,21 @@ export class FishingScene extends Phaser.Scene {
       sag = 4;
     } else if (this.mode === 'fight' && this.fightState) {
       const s = this.fightState;
-      const w = this.auth.persp.toWorld(s.dist, s.lateral);
+      const w = this.auth.persp.toWorld(s.dist, s.phase === 'landing' ? s.landing.fishX : s.lateral);
       ex = w.x - cam.scrollX;
       ey = w.y;
-      sag = 60 * Math.max(0, 1 - s.tension / 40);
+      sag = Math.min(160, s.slack * 95) + 15 * Math.max(0, 1 - s.lineTension / 30);
+      if (s.behavior === 'BURST' || s.behavior === 'SHAKING') { ex += this.rng.range(-5, 5); ey += this.rng.range(-3, 3); }
     } else if (this.mode === 'landing' || this.mode === 'result' || this.mode === 'escaped') {
       return;
     } else {
       ex = this.float.topX - cam.scrollX;
       ey = this.float.topY;
-      sag = this.mode === 'flight' ? 30 : 70;
+      sag = this.mode === 'flight' ? 30 : 10 + this.auth.lineSlack * 100;
     }
     const mx = (tip.x + ex) / 2, my = (tip.y + ey) / 2 + sag;
     const curve = new Phaser.Curves.QuadraticBezier(new Phaser.Math.Vector2(tip.x, tip.y), new Phaser.Math.Vector2(mx, my), new Phaser.Math.Vector2(ex, ey));
-    const t = this.fightState && this.mode === 'fight' ? this.fightState.tension : 0;
+    const t = this.fightState && this.mode === 'fight' ? this.fightState.lineTension : 0;
     const col = t > 85 ? 0xffb0a0 : 0xf4f7f2;
     g.lineStyle(this.mode === 'fight' ? 2.4 : 1.8, col, 0.9);
     g.strokePoints(curve.getPoints(28));
@@ -655,6 +766,7 @@ export class FishingScene extends Phaser.Scene {
 
   /** draw every fish agent as a faint shadow under the surface (P1-031) */
   private updateShadows(dt: number) {
+    this.surfaceFish.setVisible(false);
     const p = this.auth.persp;
     const alive = new Set<number>();
     for (const a of this.auth.school.agents) {
@@ -666,62 +778,134 @@ export class FishingScene extends Phaser.Scene {
         img = this.add.image(0, 0, shadowKey(a.def.id)).setDepth(8).setAlpha(0);
         this.shadows.set(key, img);
       }
-      const d = hooked && this.fightState ? this.fightState.dist : a.d;
-      const lat = hooked && this.fightState ? this.fightState.lateral : a.lat;
+      const fs = hooked ? this.fightState : null;
+      const d = fs ? fs.dist : a.d;
+      const lat = fs ? (fs.phase === 'landing' ? fs.landing.fishX : fs.lateral) : a.lat;
       const w = p.toWorld(d, lat);
       const sizeM = (a.def.maxLength / 100) * Math.cbrt(a.weight / a.def.maxWeight) * 1.1;
       const px = sizeM * p.ppm(d);
       img.setPosition(w.x, w.y).setScale(px / img.width, (px / img.width) * 0.55);
       const dirX = Math.sin(a.heading);
-      if (hooked && this.fightState) img.setFlipX(this.fightState.fishDirection > 0);
+      if (fs) {
+        img.setFlipX(fs.phase === 'landing' ? false : fs.fishDir > 0);
+        img.setRotation(fs.phase === 'landing' ? Math.PI / 2 * fs.landing.heading : fs.fishDir * 0.2);
+        if (fs.phase === 'landing' && fs.depth < 0.35) {
+          this.surfaceFish.setTexture(fishArtKey(a.def.id)).setVisible(true)
+            .setPosition(w.x, w.y).setRotation(Math.PI / 2 * fs.landing.heading)
+            .setScale(px / this.surfaceFish.width).setAlpha(clamp(1 - fs.depth * 2, 0.3, 0.9));
+        }
+      }
       else img.setFlipX(dirX > 0);
       const depthFade = clamp(1 - a.depth / 3.5, 0.2, 1);
       const near = clamp(1.4 - d / 22, 0.15, 1);
-      const target = hooked ? 0.75 : (a.state === 'flee' ? 0.25 : 0.42) * depthFade * near;
+      const target = fs ? clamp(0.85 - fs.depth * 0.18, 0.3, 0.85) : (a.state === 'flee' ? 0.25 : 0.42) * depthFade * near;
       img.setAlpha(approach(img.alpha, target, 3, dt));
     }
     for (const [k, img] of this.shadows) if (!alive.has(k)) { img.destroy(); this.shadows.delete(k); }
   }
 
-  private fightTick(dt: number): FightState | null {
+  private fightTick(dt: number): FishFightState | null {
     const k = this.keys;
-    const reel = this.input2.left || this.input2.touchReel || k.W.isDown || k.UP.isDown;
-    const rel = this.input2.right || this.input2.touchRelease || k.S.isDown || k.DOWN.isDown;
-    let steer = this.mouseSteer;
-    if (k.A.isDown || k.LEFT.isDown) steer = -1;
-    if (k.D.isDown || k.RIGHT.isDown) steer = 1;
-    this.steer = approach(this.steer, steer, 10, dt);
-    this.input2.reel = reel && !rel;
-    const inp: FightInput = { reel: reel && !rel ? 1 : 0, release: rel ? 1 : 0, steer: this.steer };
-    const s = this.auth.fightTick(dt, inp);
+    const left = k.A.isDown || k.LEFT.isDown, right = k.D.isDown || k.RIGHT.isDown;
+    const up = k.W.isDown || k.UP.isDown, down = k.S.isDown || k.DOWN.isDown;
+    const reelHeld = !this.netOut && (this.input2.left || this.input2.touchReel);
+    this.input2.reel = reelHeld;
+    const prev = this.fightState;
+    const dist = prev?.dist ?? 5;
+    // mouse x → lateral metres at the fish's distance (net aim)
+    const p = this.auth.persp;
+    const yAt = p.toWorld(dist, 0).y;
+    const netX = p.fromWorld(this.aim.sx + this.cameras.main.scrollX, yAt).lateral;
+    const c: FightControls = {
+      reel: reelHeld ? this.reelGear : 0,
+      balance: (right ? 1 : 0) - (left ? 1 : 0),
+      rodCmd: (up ? 1 : 0) - (down ? 1 : 0),
+      dragCmd: (k.E.isDown ? 1 : 0) - (k.Q.isDown ? 1 : 0),
+      netOut: this.netOut,
+      netX,
+      netDistance: clamp(p.dOf(this.aim.sy - 30), 0.5, 4.5),
+      netDepth: clamp(0.35 + (this.aim.sy - yAt - 30) / 180, 0.02, 0.8),
+      scoop: this.scoopReq,
+    };
+    this.scoopReq = false;
+    const s = this.auth.fightTick(dt, c);
     if (!s) return null;
     this.fightState = s;
-    // camera follows the fish a little
-    const w = this.auth.persp.toWorld(s.dist, s.lateral);
+    // net is out but the fish is not in the landing window any more (final burst, failed scoop, ran off): put the net away so the player can reel again
+    if (this.netOut && s.phase === 'fighting') {
+      this.netOut = false;
+      this.hud.toast(s.message || s.landing.reason || 'Cá vùng ra — cất vợt, thu dây lại.', '#ffb27a', 1800);
+    }
+    const fx = s.phase === 'landing' ? s.landing.fishX : s.lateral;
+    const w = p.toWorld(s.dist, fx);
     const cam = this.cameras.main;
     this.fightCamX = approach(this.fightCamX, clamp(w.x - 900, 0, this.lake.worldWidth - 1920), 1.5, dt);
     cam.scrollX = this.fightCamX;
-    // wake where the line enters the water
-    this.wake.setVisible(true).setPosition(w.x, w.y).setScale(this.auth.persp.scaleAt(s.dist) * 2.2);
+    // balance tilts the view (off when screen shake is disabled)
+    this.camTilt = approach(this.camTilt, this.auth.profile.settings.shake ? (s.balance / 100) * 0.015 : 0, 3, dt);
+    const sc = p.scaleAt(s.dist);
+    this.wake.setVisible(true).setPosition(w.x, w.y).setScale(sc * 2.2);
     if (!this.wake.anims.isPlaying) this.wake.play('line_wake');
-    if (s.phase !== this.lastPhase) {
-      if (s.phase === 'struggle' || s.phase === 'final_burst' || s.phase === 'surge') this.playFx('splash_light', w.x, w.y, this.auth.persp.scaleAt(s.dist) * 1.4, 0.5, 0.85);
-      this.lastPhase = s.phase;
+    // readable cues per behaviour
+    if (s.behavior !== this.lastBehavior) {
+      if (s.behavior === 'BURST' || s.behavior === 'TURNING') this.playFx('splash_light', w.x, w.y, sc * 1.4, 0.5, 0.85);
+      if (s.behavior === 'DIVING' || s.behavior === 'SULKING') this.bubblesAt(w.x, w.y, sc);
+      this.lastBehavior = s.behavior;
     }
-    if (s.burst && this.rng.chance(dt * 1.5)) this.playFx('ripple_small', w.x, w.y, this.auth.persp.scaleAt(s.dist) * 3);
+    if ((s.behavior === 'BURST' || s.behavior === 'SHAKING') && this.rng.chance(dt * 3)) this.playFx('ripple_small', w.x, w.y, sc * 3);
+    if (s.next === 'JUMPING' && this.rng.chance(dt * 4)) this.playFx('ripple', w.x, w.y, sc * 2.4).setAlpha(0.7);
+    if ((s.next === 'DIVING' || s.next === 'SULKING') && this.rng.chance(dt * 2)) this.bubblesAt(w.x, w.y, sc);
     if (s.jumpNow) this.fishJump(w.x, w.y, s.dist);
-    if (s.message) this.hud.toast(s.message, COL.gold, 1500);
-    const red = s.tension > 85;
+    if (s.message && (s.message !== this.lastFightMessage || this.time.now - this.lastFightMessageAt > 3000)) {
+      this.hud.toast(s.message, COL.gold, 1500);
+      this.lastFightMessage = s.message;
+      this.lastFightMessageAt = this.time.now;
+    }
+    const red = s.lineTension > 88;
     if (red && !this.wasRed) sfx.nibble();
     this.wasRed = red;
-    this.hud.showFight(s, PHASE_LABEL);
-    this.hud.prompt(s.phase === 'landing' ? 'VỚT CÁ!  (Space / Click)' : null);
-    this.hud.hint(this.auth.profile.settings.hints ? 'Thu dây: giữ chuột trái / W   ·   Nhả dây: chuột phải / S   ·   Nghiêng cần NGƯỢC hướng cá: A / D' : '', true);
+    const fight = this.auth.fight!;
+    const def = fight.fish;
+    const slipAt = (18 + 100 * s.drag * fight.gear.maxDrag) / fight.gear.lineStrength;
+    const netPossible = !this.netOut && s.dist < 4.2 && s.fishStamina <= 40;
+    this.fightHud.update(s, `${def.name} ~${fmtKg(fight.weight)}`, fight.prof.name, fight.diff, slipAt, netPossible);
+    this.hud.prompt(null);
+    this.hud.hint(this.auth.profile.settings.hints
+      ? (this.netOut ? 'Rê chuột X/Y đặt miệng vợt dưới cá · dẫn đầu cá vào trước · Click nhấc · F cất'
+        : 'A/D ép cần ngang · W nâng / S hạ cần · Q/E lực hãm · giữ chuột thu dây · F vợt')
+      : '', 470);
     if (s.phase === 'escaped') {
       this.onEscaped(s);
       return null;
     }
+    if (s.phase === 'landed') {
+      this.onLanded(s);
+      return null;
+    }
+    void BEHAVIOR_LABEL;
     return s;
+  }
+
+  /** net sprite follows the mouse while it is out (landing mini-game) */
+  private updateNet(dt: number) {
+    this.netGuide.clear();
+    const s = this.fightState;
+    if (this.mode === 'fight' && this.netOut && s) {
+      const p = this.auth.persp;
+      const w = p.toWorld(s.landing.netDistance, s.landing.netX);
+      const scale = clamp(this.auth.loadout().net.netSize! * 2 * p.ppm(s.landing.netDistance) / 300, 0.12, 0.6);
+      this.rig.holdNet(true, w.x - this.cameras.main.scrollX, w.y + s.landing.netDepth * 50, dt, scale);
+      if (this.auth.difficulty() !== 'hard') {
+        this.netGuide.lineStyle(2, s.landing.inside ? 0x7ef0c8 : 0xffd36b, 0.8)
+          .strokeEllipse(w.x - this.cameras.main.scrollX, w.y + s.landing.netDepth * 50, scale * 300, scale * 145);
+      }
+    } else if (this.mode !== 'landing') this.rig.holdNet(false, 0, 0, dt);
+  }
+
+  private bubblesAt(x: number, y: number, sc: number) {
+    const b = this.add.sprite(x + this.rng.range(-20, 20), y - 4, 'bubbles_00').setScale(sc * 2.2).setDepth(28).setOrigin(0.5, 1);
+    b.play('bubbles');
+    this.time.delayedCall(2200, () => b.destroy());
   }
 
   private fishJump(x: number, y: number, d: number) {
@@ -745,9 +929,9 @@ export class FishingScene extends Phaser.Scene {
     this.ui.debugT.setText([
       `mode=${this.mode}  fps=${this.game.loop.actualFps.toFixed(0)}  hour=${this.hour.toFixed(2)}  wind=${this.wind.toFixed(2)}`,
       `bite=${b?.state ?? '-'} species=${b?.species?.id ?? '-'} t=${b?.stateT.toFixed(2) ?? '-'} window=${b ? b.windowProgress().toFixed(2) : '-'}`,
-      `renderer=${this.game.renderer.type === Phaser.WEBGL ? 'WebGL' : 'Canvas'}  hookHold=${f ? f.hookHold.toFixed(0) : '-'} shake=${f ? f.headShake : '-'}`,
+      `renderer=${this.game.renderer.type === Phaser.CANVAS ? 'Canvas 2D' : 'WebGL'}  diff=${this.auth.difficulty()}  hook=${f ? f.hookStrength.toFixed(0) : '-'} beh=${f?.behavior ?? '-'} next=${f?.next ?? '-'}`,
       `float x=${this.float.c.x.toFixed(0)} y=${this.float.y.toFixed(0)} sink=${this.float.sinkNow.toFixed(2)} cast d=${this.auth.cast?.d.toFixed(1) ?? '-'} lat=${this.auth.cast?.lateral.toFixed(1) ?? '-'}`,
-      f ? `fight ${f.phase} T=${f.tension.toFixed(0)} stam=${f.fishStamina.toFixed(0)} line=${f.lineIntegrity.toFixed(0)} dist=${f.dist.toFixed(1)} lat=${f.lateral.toFixed(1)} dir=${f.fishDirection.toFixed(2)} lev=${f.leverage.toFixed(2)}` : 'fight -',
+      f ? `fight ${f.phase} T=${f.lineTension.toFixed(0)} bal=${f.balance.toFixed(0)} rod=${f.rodAngle.toFixed(2)} drag=${f.drag.toFixed(2)} stam=${f.fishStamina.toFixed(0)} dist=${f.dist.toFixed(1)} lat=${f.lateral.toFixed(1)} win=${f.landing.window}` : 'fight -',
       `agents: ${ag}`,
     ].join('\n'));
   }

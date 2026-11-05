@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
 import { Button, COL, Modal, fmtHour, fmtKg, panel, txt } from './ui';
-import { BAIT_BY_ID, FISH_BY_ID, RARITY_COLOR, RARITY_LABEL, ZONE_BY_ID } from '../core/data';
+import { BAIT_BY_ID, FISH_BY_ID, GEAR, GEAR_BY_ID, type GearSlot, RARITY_COLOR, RARITY_LABEL, ZONE_BY_ID } from '../core/data';
 import type { LocalAuthority } from '../core/authority';
 import type { CatchRecord } from '../core/profile';
+import { DIFFICULTY, type Difficulty } from '../core/fishFight';
 import { fishArtKey } from './assets';
 
 /** P1-059..064: catch result with fish image, weight, length, keep / release. */
@@ -66,24 +67,24 @@ export function resultCard(scene: Phaser.Scene, a: LocalAuthority, rec: CatchRec
 
 /** Controls + basic settings (assist, hints, high contrast float, shake, volume, debug). */
 export function helpPanel(scene: Phaser.Scene, a: LocalAuthority, onClose: () => void, onChange: () => void) {
-  const m = new Modal(scene, 'Hướng dẫn & cài đặt', 1300, 860, onClose);
+  const m = new Modal(scene, 'Hướng dẫn & cài đặt', 1300, 880, onClose);
   const b = m.content;
   const render = () => {
     b.removeAll(true);
     const lines = [
-      ['Ném phao', 'Rê chuột chọn hướng · GIỮ chuột trái để tích lực · THẢ để ném'],
-      ['Chọn điểm rơi', 'Lực ném quyết định khoảng cách — vòng trắng là điểm dự kiến'],
-      ['Đọc phao', 'Nhấp nhô đều = sóng · Giật ngắn = cá rỉa · Chìm hẳn / bị kéo = cá ăn'],
-      ['Đóng cá', 'Click / Space ngay khi phao CHÌM HẲN và ở dưới nước — chìm thoáng rồi nổi lại là cá rỉa (chìm giả)'],
-      ['Đấu cá', 'Giữ chuột trái / W = thu dây · Giữ chuột phải / S = nhả dây'],
-      ['Hướng cần', 'A / D hoặc rê chuột — nghiêng cần NGƯỢC hướng cá chạy'],
-      ['Cá lắc đầu', 'Ngừng thu dây, nhả nhẹ nếu căng cao — ghì mạnh lúc này sẽ xé lưỡi'],
-      ['Vớt cá', 'Khi cá mệt và sát bờ: Space hoặc click'],
-      ['Khác', 'R = thu cần · [ ] / cuộn chuột = độ sâu · 1/2 = đổi mồi · ← → = lia camera · F1 = debug'],
+      ['Ném phao', 'Rê chuột chọn hướng · GIỮ chuột trái tích lực · THẢ để ném · R = thu cần'],
+      ['Đọc phao', 'Sóng nhấp nhô đều · cá có thể kéo chìm, kéo ngang hoặc nâng phao khi mồi ở đáy'],
+      ['Giật cần', 'Space / click khi phao bị kéo hoặc nổi bất thường · A/D chọn hướng · giữ lâu tăng lực'],
+      ['Ép cần ngang', 'A / D (← →) — đổi hướng cần, dẫn cá khỏi sen; không có thanh giữ thăng bằng'],
+      ['Góc cần', 'W / S (↑ ↓) — cá NHẢY: hạ cần · cá LẶN / nằm đáy: dựng cần · vạch xanh là góc tốt'],
+      ['Lực hãm', 'Q giảm / E tăng — lỏng quá cá kéo hết dây, chặt quá đứt dây; vạch trắng = điểm xả dây'],
+      ['Thu dây', 'Giữ chuột trái · 1 / 2 / 3 hoặc cuộn chuột = tốc độ thu · cá lắc đầu: ngừng thu'],
+      ['Vớt cá', 'F đưa vợt · chuột X/Y đặt miệng vợt dưới cá · đầu cá vào trước · thân vào đủ rồi CLICK'],
+      ['Chuẩn bị dây', 'Giữ chuột phải khi chờ để thu dây chùng · R thu cần · L đồ câu · [ ] chỉnh độ sâu'],
     ];
     lines.forEach(([k, v], i) => {
-      b.add(txt(scene, 50, 96 + i * 44, k, 21, COL.gold, 800));
-      b.add(txt(scene, 270, 96 + i * 44, v, 19, COL.text, 600));
+      b.add(txt(scene, 50, 96 + i * 42, k, 21, COL.gold, 800));
+      b.add(txt(scene, 250, 96 + i * 42, v, 19, COL.text, 600));
     });
     const s = a.profile.settings;
     const toggles: Array<[keyof typeof s, string]> = [
@@ -103,8 +104,55 @@ export function helpPanel(scene: Phaser.Scene, a: LocalAuthority, onClose: () =>
     b.add(txt(scene, 670, 672, `Âm lượng ${Math.round(s.volume * 100)}%`, 21, COL.text, 600));
     b.add(new Button(scene, 1010, 690, '−', () => { s.volume = Math.max(0, +(s.volume - 0.1).toFixed(1)); a.save(); render(); onChange(); }, { w: 64, h: 48 }));
     b.add(new Button(scene, 1090, 690, '+', () => { s.volume = Math.min(1, +(s.volume + 0.1).toFixed(1)); a.save(); render(); onChange(); }, { w: 64, h: 48 }));
+    // difficulty
+    b.add(txt(scene, 50, 744, 'Độ khó', 21, COL.gold, 800));
+    (['easy', 'normal', 'hard'] as Difficulty[]).forEach((d, i) => {
+      const on = (s.difficulty ?? 'normal') === d;
+      b.add(new Button(scene, 330 + i * 250, 756, ['DỄ', 'THƯỜNG', 'KHÓ'][i], () => { s.difficulty = d; a.save(); render(); onChange(); }, { w: 220, h: 48, color: on ? 0x2b8a6e : 0x5a6a70, size: 19 }));
+    });
+    b.add(txt(scene, 1060, 744, DIFFICULTY[s.difficulty ?? 'normal'].label, 17, COL.dim, 600, { wordWrap: { width: 220 } }));
     const st = a.profile.stats;
-    b.add(txt(scene, 50, 780, `Đã ném ${st.casts} lần · bắt ${st.catches} cá · thả ${st.released} · cá thoát ${st.escapes} · tổng ${fmtKg(st.totalWeight)}`, 18, COL.dim, 600));
+    b.add(txt(scene, 50, 806, `Đã ném ${st.casts} lần · bắt ${st.catches} cá · thả ${st.released} · cá thoát ${st.escapes} · tổng ${fmtKg(st.totalWeight)}`, 18, COL.dim, 600));
+  };
+  render();
+  return m;
+}
+
+const SLOT_LABEL: Record<string, string> = { rod: 'Cần câu', reel: 'Máy câu', line: 'Dây', net: 'Vợt', float: 'Phao' };
+function gearStat(g: (typeof GEAR)[number]) {
+  switch (g.slot) {
+    case 'rod': return `Lực ${g.power} · ném ${g.maxCast} m · nhạy ${g.sensitivity}`;
+    case 'reel': return `Tốc thu ×${g.reelSpeed} · hãm tối đa ${Math.round((g.drag ?? 0) * 100)}% · ${g.capacity} m dây`;
+    case 'line': return `Độ bền ×${g.strength} · kín đáo ×${g.stealth}`;
+    case 'net': return `Miệng vợt ${Math.round((g.netSize ?? 0) * 200)} cm`;
+    default: return '';
+  }
+}
+
+/** Gear loadout (no shop in this build): gear choice matters for big fish. */
+export function loadoutPanel(scene: Phaser.Scene, a: LocalAuthority, onClose: () => void, onChange: () => void) {
+  const m = new Modal(scene, 'Đồ câu', 1500, 900, onClose);
+  const b = m.content;
+  const slots: GearSlot[] = ['rod', 'reel', 'line', 'net'];
+  const render = () => {
+    b.removeAll(true);
+    b.add(txt(scene, 40, 92, 'Cần yếu / dây mảnh không giữ được cá to — nhưng đồ tốt mà thao tác kém vẫn mất cá.', 19, COL.dim, 600));
+    slots.forEach((slot, row) => {
+      const y = 150 + row * 175;
+      b.add(txt(scene, 40, y + 40, SLOT_LABEL[slot], 24, COL.gold, 800));
+      const items = GEAR.filter((g) => g.slot === slot);
+      items.forEach((g, i) => {
+        const x = 220 + i * 420;
+        const eq = a.profile.equip as Record<string, string | undefined>;
+        const on = (eq[slot] ?? (slot === 'net' ? 'vot_nho' : '')) === g.id;
+        b.add(new Button(scene, x + 190, y + 50, g.name, () => {
+          eq[slot] = g.id; a.save(); render(); onChange();
+        }, { w: 380, h: 60, color: on ? 0x2b8a6e : 0x41545a, size: 20 }));
+        b.add(txt(scene, x, y + 92, gearStat(g), 16, on ? '#bff2dc' : COL.dim, 600));
+        b.add(txt(scene, x, y + 116, g.desc, 16, COL.dim, 600, { wordWrap: { width: 390 } }));
+      });
+    });
+    void GEAR_BY_ID;
   };
   render();
   return m;

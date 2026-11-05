@@ -34,13 +34,26 @@ export interface BiteContext {
   rng: Rng;
   spookedFor: number; // seconds of quiet after a noisy cast
   agentDriven?: boolean;
+  react?: number; // difficulty multiplier for the hook timeline
+  lineSlack?: number; // metres of loose line between tip and float
 }
+
+export type StrikeDir = 'up' | 'left' | 'right';
+/** Hook Setting timeline per species, ms after the real bite: [touch ends, ideal ends, last chance ends] */
+export const HOOK_TIMELINE: Record<string, [number, number, number]> = {
+  ro_phi: [250, 800, 1200], ca_tre: [350, 1100, 1700], ca_loc: [150, 550, 900], ca_chep: [400, 1100, 1600], tram_co: [300, 900, 1400],
+};
+/** mouth: soft = a hard strike tears out; hard = needs a strong strike; any = both work */
+export const MOUTH: Record<string, 'soft' | 'hard' | 'any'> = { ro_phi: 'soft', ca_tre: 'hard', ca_loc: 'hard', ca_chep: 'any', tram_co: 'hard' };
+export const MOUTH_TEXT = { soft: 'miệng mỏng — giật nhẹ', hard: 'miệng cứng — giật mạnh', any: 'giật nhẹ hay mạnh đều được' };
 
 export interface HookResult {
   ok: boolean;
   state: BiteState;
-  quality: number; // 0..1 timing quality
+  quality: number; // 0..1 → Hook Strength
   reason: string;
+  timing?: 'early' | 'ideal' | 'late';
+  transmitted?: number;
 }
 
 interface Pulse { t: number; dur: number; sink: number; tilt: number; dx: number }
@@ -67,6 +80,7 @@ export class BiteSession {
   private pulses: Pulse[] = [];
   private takeDx = 0;
   private windowLen = 0;
+  timeline: [number, number, number] = [250, 800, 1200];
   private c: BiteContext;
 
   constructor(ctx: BiteContext) {
@@ -177,8 +191,9 @@ export class BiteSession {
       case 'TAKING_BAIT': {
         if (this.stateT >= this.dur) {
           const f = this.species!;
-          // real bites are short: ~0.4–1.1 s without assist (fast predators the shortest)
-          this.windowLen = f.bitePatience * 0.72 * (this.c.assist ? 1.45 : 1) * (this.c.newbie ? 1.5 : 1) * this.c.rodSensitivity * r.range(0.85, 1.15);
+          // Hook Setting timeline: touch → ideal → last chance → spit (per species, scaled by difficulty)
+          this.timeline = this.scaledTimeline(f.id);
+          this.windowLen = this.timeline[2] / 1000;
           this.enter('HOOK_WINDOW', this.windowLen);
           ev.push({ type: 'window' });
         }
@@ -217,39 +232,86 @@ export class BiteSession {
     this.waited = Math.min(this.waited, 20);
   }
 
+  private scaledTimeline(id: string): [number, number, number] {
+    const base = HOOK_TIMELINE[id] ?? [250, 800, 1200];
+    const k = (this.c.react ?? 1) * (this.c.assist ? 1.25 : 1) * (this.c.newbie ? 1.4 : 1) * this.c.rodSensitivity;
+    return [base[0] * k, base[1] * k, base[2] * k];
+  }
+
+  /** where the bite is pulling the float: the best strike is the opposite way (or up if it sinks straight) */
+  bestStrike(): StrikeDir {
+    if (Math.abs(this.takeDx) < 18) return 'up';
+    return this.takeDx > 0 ? 'left' : 'right';
+  }
+
+  /** current zone of the hook timeline (for HUD guides / debug) */
+  hookZone(): 'none' | 'early' | 'ideal' | 'late' {
+    if (this.state === 'TAKING_BAIT') return 'early';
+    if (this.state !== 'HOOK_WINDOW') return 'none';
+    const ms = this.stateT * 1000;
+    return ms < this.timeline[0] ? 'early' : ms < this.timeline[1] ? 'ideal' : 'late';
+  }
+
   /** time remaining in hook window, 0..1 (for assist / debug) */
   windowProgress(): number {
     return this.state === 'HOOK_WINDOW' ? clamp(this.stateT / this.dur, 0, 1) : 0;
   }
 
-  hook(): HookResult {
+  /**
+   * Hook Setting: timing × direction × strength.
+   * dir: which way the rod is jerked; strong: tap (soft) or held strike (strong).
+   */
+  hook(dir: StrikeDir = 'up', strong: boolean | number = false): HookResult {
+    const stroke = typeof strong === 'number' ? clamp(strong, 0, 1) : strong ? 0.85 : 0.48;
+    const hardStrike = stroke > 0.65;
     const s = this.state;
-    if (s === 'HOOK_WINDOW') {
-      // best moment: early in the window (fish has just turned with the bait). Late = hook only lips.
-      const u = this.stateT / this.dur;
-      const q = clamp(1 - Math.abs(u - 0.22) * 1.6, 0, 1);
-      const ok = this.c.rng.chance(this.c.newbie ? 0.95 : 0.55 + 0.45 * q);
-      if (ok) {
+    const f = this.species;
+    if ((s === 'HOOK_WINDOW' || s === 'TAKING_BAIT') && f) {
+      const zone = this.hookZone();
+      const ms = this.stateT * 1000;
+      const [t0, t1] = this.timeline;
+      let q: number, tTxt: string;
+      if (zone === 'ideal') {
+        const mid = (t0 + t1) / 2;
+        q = 1 - (Math.abs(ms - mid) / ((t1 - t0) / 2)) * 0.15;
+        tTxt = 'đúng lúc';
+      } else if (zone === 'early') {
+        q = 0.35;
+        tTxt = 'hơi sớm';
+      } else {
+        q = 0.45;
+        tTxt = 'hơi muộn';
+      }
+      const best = this.bestStrike();
+      let d = 1, dTxt = 'đúng hướng';
+      if (dir !== best) {
+        if (dir === 'up') { d = 0.7; dTxt = 'nên giật ngược hướng phao chạy'; }
+        else if (best === 'up') { d = 0.75; dTxt = 'phao chìm thẳng — nên giật lên'; }
+        else { d = 0.35; dTxt = 'giật cùng hướng cá chạy'; }
+      }
+      const mouth = MOUTH[f.id] ?? 'any';
+      // A finite rod stroke first takes up loose line; the remainder loads the hook.
+      const travel = 0.18 + stroke * 1.1;
+      const transmitted = clamp((travel - (this.c.lineSlack ?? 0.05)) / travel, 0, 1);
+      const impulse = stroke * transmitted * Math.sqrt(this.c.rodSensitivity);
+      let st = 0.95, sTxt = hardStrike ? 'giật mạnh' : 'giật nhẹ';
+      if (mouth === 'soft') { st = hardStrike ? 0.6 : 1; if (hardStrike) sTxt = 'lực giật lớn, lưỡi bám kém'; }
+      if (mouth === 'hard') { st = hardStrike ? 1 : 0.55; if (!hardStrike) sTxt = 'lực truyền tới lưỡi còn nhẹ'; }
+      const strength = clamp(q * d * st * transmitted, 0, 1);
+      const enoughForce = impulse >= (mouth === 'hard' ? 0.24 : 0.12);
+      // Outcome follows engagement and delivered force, not a hidden random miss.
+      if (enoughForce && strength >= (this.c.newbie ? 0.12 : 0.22) && !(s === 'TAKING_BAIT' && this.stateT < this.dur * 0.55)) {
         this.state = 'HOOKED';
-        return { ok, state: s, quality: clamp(q, 0, 1), reason: 'Đóng cá thành công!' };
+        return { ok: true, state: s, quality: strength, transmitted, timing: zone === 'none' ? undefined : zone, reason: `Dính cá! ${tTxt} · ${dTxt} · ${sTxt}` };
       }
       this.state = 'MISSED';
       this.stateT = 0;
-      return { ok, state: s, quality: q, reason: 'Lưỡi không ăn — cá tuột!' };
-    }
-    if (s === 'TAKING_BAIT') {
-      if (this.c.rng.chance(0.15)) {
-        this.state = 'HOOKED';
-        return { ok: true, state: s, quality: 0.4, reason: 'Đóng hơi sớm nhưng vẫn dính!' };
-      }
-      this.state = 'MISSED';
-      this.stateT = 0;
-      return { ok: false, state: s, quality: 0, reason: 'Đóng sớm: cá mới ngậm mồi, chưa nuốt.' };
+      return { ok: false, state: s, quality: 0, transmitted, timing: zone === 'none' ? undefined : zone, reason: transmitted < 0.3 ? 'Dây còn chùng — cú giật chưa truyền tới lưỡi. Giữ chuột phải để thu dây chùng trước khi giật.' : `Hụt! ${tTxt} · ${dTxt} · ${sTxt}` };
     }
     if (s === 'NIBBLE' || s === 'APPROACH') {
       this.state = 'MISSED';
       this.stateT = 0;
-      return { ok: false, state: s, quality: 0, reason: s === 'NIBBLE' ? 'Đóng quá sớm: cá chỉ đang rỉa mồi.' : 'Giật cần làm cá hoảng bỏ đi.' };
+      return { ok: false, state: s, quality: 0, reason: s === 'NIBBLE' ? 'Đóng quá sớm: cá chỉ đang rỉa mồi (chìm giả).' : 'Giật cần làm cá hoảng bỏ đi.' };
     }
     return { ok: false, state: s, quality: 0, reason: 'Chưa có cá cắn câu.' };
   }
@@ -271,16 +333,17 @@ export class BiteSession {
         break;
       case 'TAKING_BAIT': {
         const u = clamp(t / this.dur, 0, 1);
-        sink = Math.max(sink, 0.35 + 0.3 * u);
+        // A bottom rig can unload the float when a fish lifts the bait/sinker.
+        sink = this.c.onBottom && this.takeDx < 0 ? -0.3 * u : Math.max(sink, 0.35 + 0.3 * u);
         dx += this.takeDx * u;
         tilt += 0.25 * u * Math.sign(this.takeDx);
         tremor = 0.3;
         break;
       }
       case 'HOOK_WINDOW': {
-        const u = clamp(t / 0.25, 0, 1);
+        const u = clamp((t * 1000) / Math.max(120, this.timeline[0]), 0, 1); // touch: dips, then fully under
         const predator = this.species?.nibbleStyle === 'predator';
-        sink = Math.max(sink, 0.65 + 0.85 * u);
+        sink = this.c.onBottom && this.takeDx < 0 ? -0.3 - 0.25 * u : Math.max(sink, 0.65 + 0.85 * u);
         dx += this.takeDx * (1 + (predator ? 1.4 : 0.6) * clamp(t / this.dur, 0, 1));
         tilt += 0.35 * Math.sign(this.takeDx);
         tremor = 0.5;

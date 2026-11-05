@@ -22,6 +22,7 @@ export class FloatView {
   lying = false; // bait on bottom with float rig → float lies flat
   visible = false;
   sinkNow = 0;
+  private sinkVelocity = 0;
   topX = 0;
   topY = 0;
 
@@ -50,6 +51,8 @@ export class FloatView {
     this.x = x;
     this.y = y;
     this.driftX = 0;
+    this.sinkNow = 0;
+    this.sinkVelocity = 0;
     this.scale = scale;
     this.c.setVisible(true);
     this.visible = true;
@@ -71,11 +74,19 @@ export class FloatView {
   update(dt: number, pose: FloatPose, wind: number, current: number, alert: boolean, glow: boolean) {
     if (!this.visible) return;
     this.t += dt;
-    this.driftX += (wind * 0.8 + current) * dt;
+    // Tethered float: wind bows the line instead of drifting off indefinitely.
+    this.driftX += ((wind * 0.8 + current) - this.driftX * 0.12) * dt;
     const wave = Math.sin(this.t * 2.1) * 0.035 + Math.sin(this.t * 3.7 + 1) * 0.02 + Math.sin(this.t * 0.7) * 0.03;
     const tremor = pose.tremor * (Math.sin(this.t * 41) * 0.04 + Math.sin(this.t * 27) * 0.03);
-    const sink = Phaser.Math.Clamp(pose.sink + wave + tremor, -0.12, 1.6);
-    this.sinkNow = sink;
+    const target = Phaser.Math.Clamp(pose.sink + wave + tremor, -0.6, 1.6);
+    // Buoyancy/inertia: spring back after a nibble, no instantaneous teleport.
+    const steps = Math.max(1, Math.ceil(dt * 120));
+    for (let i = 0; i < steps; i++) {
+      const h = dt / steps;
+      this.sinkVelocity += ((target - this.sinkNow) * 180 - this.sinkVelocity * 22) * h;
+      this.sinkNow += this.sinkVelocity * h;
+    }
+    const sink = this.sinkNow;
     // sink in texture px: 1.0 ≈ the whole above-water part
     const aboveH = this.texH * this.wl;
     const sinkPx = sink * aboveH;
@@ -85,7 +96,7 @@ export class FloatView {
     this.c.setPosition(this.x + this.driftX + pose.dx * this.scale * 3, this.y).setScale(this.scale).setRotation(rot);
     // texture top moves down by sinkPx; crop keeps only rows above the waterline (y=0)
     this.above.setVisible(vis > 0.5).setPosition(0, -aboveH + sinkPx);
-    this.above.setCrop(0, 0, this.texW, vis);
+    this.above.setCrop(0, 0, this.texW, Math.min(this.texH, vis));
     this.below.setVisible(true).setPosition(0, -aboveH + sinkPx);
     this.below.setCrop(0, vis, this.texW, this.texH - vis);
     const top = new Phaser.Math.Vector2(0, (-aboveH + sinkPx) * this.scale).rotate(rot);

@@ -16,6 +16,7 @@ export class Lake {
   private t = 0;
   private rng = new Rng(7);
   night = 0;
+  nightAlpha = 0;
 
   constructor(private scene: Phaser.Scene, public zone: ZoneDef, private persp: Perspective) {
     this.worldWidth = zone.worldWidth;
@@ -98,14 +99,15 @@ export class Lake {
     if (this.zone.id === 'bai_beo') this.reeds.push(s.add.image(1980, 1150, 'prop_reed_02').setOrigin(0.5, 1).setScale(1.1).setDepth(60));
   }
 
-  update(dt: number, hour: number) {
+  update(dt: number, hour: number, cloud = 0, wind = 0.5) {
     this.t += dt;
     for (const c of this.clouds) {
-      c.x += dt * 6;
+      c.x += dt * (6 + Math.abs(wind) * 6);
+      c.setAlpha(0.92 * (1 - cloud * 0.8)).setTint(cloud > 0.5 ? 0xb0bfce : 0xffffff);
       if (c.x > 3000) c.x = -400;
     }
     if (this.reflection) this.reflection.x = Math.sin(this.t * 0.6) * 3;
-    for (const r of this.reeds) r.rotation = Math.sin(this.t * 1.2 + r.x * 0.01) * 0.02;
+    for (const r of this.reeds) r.rotation = Math.sin(this.t * (1.2 + Math.abs(wind) * 0.2) + r.x * 0.01) * (0.012 + Math.abs(wind) * 0.015);
 
     // light of day: dawn 5-7, dusk 17-19, night 19-5
     const h = hour % 24;
@@ -116,12 +118,13 @@ export class Lake {
     night = Phaser.Math.Clamp(night, 0, 1);
     this.night = night;
     const warm = (h > 5 && h < 8 ? 1 - Math.abs(h - 6.3) / 1.7 : 0) + (h > 16 && h < 19.5 ? 1 - Math.abs(h - 18) / 1.6 : 0);
-    this.warm.setAlpha(Phaser.Math.Clamp(warm, 0, 1) * 0.12);
-    this.tint.setAlpha(night * 0.55);
+    this.warm.setAlpha(Phaser.Math.Clamp(warm, 0, 1) * 0.12 * (1 - cloud));
+    this.tint.setAlpha(0); // night darkening is drawn once over world + hands in the UI scene (see FishingScene)
+    this.nightAlpha = night * 0.55;
 
     // ambient sparkles on water (sun glint) and creatures
     this.sparkleT -= dt;
-    if (this.sparkleT <= 0 && night < 0.6) {
+    if (this.sparkleT <= 0 && night < 0.6 && cloud < 0.5) {
       this.sparkleT = 0.15;
       const cam = this.scene.cameras.main;
       const x = cam.scrollX + (this.zone.kind === 'parallax' ? this.rng.range(1050, 1650) : this.rng.range(200, 1700));

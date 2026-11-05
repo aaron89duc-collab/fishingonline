@@ -1,10 +1,10 @@
 import Phaser from 'phaser';
-import { Bar, Button, COL, fmtHour, iconButton, panel, txt } from './ui';
-import type { FightState } from '../core/fight';
+import { Bar, Box, Button, COL, fmtHour, iconButton, panel, txt } from './ui';
 
 export interface HudInfo {
   zone: string; hour: number; bait: string; baitIcon: string; hook: string; depth: string; wind: number;
   caught: number; best: string;
+  weather?: string;
 }
 
 export class Hud {
@@ -20,7 +20,7 @@ export class Hud {
   private warnT: Phaser.GameObjects.Text;
   private questT: Phaser.GameObjects.Text;
   private hintT: Phaser.GameObjects.Text;
-  private hintBg: Phaser.GameObjects.NineSlice;
+  private hintBg: Box;
   private castC: Phaser.GameObjects.Container;
   private castBar: Bar;
   private sweetRect: Phaser.GameObjects.Rectangle;
@@ -66,7 +66,8 @@ export class Hud {
       this.root.add(b);
     });
     // ---- hint
-    this.hintBg = s.add.nineslice(30, 1036, 'ui_toast', undefined, 600, 56, 30, 30, 20, 20).setOrigin(0, 1).setAlpha(0.85);
+    this.hintBg = new Box(s, 30, 1036, 600, 56, 'ui_toast').setOrigin(0, 1);
+    this.hintBg.setAlpha(0.88);
     this.hintT = txt(s, 52, 1008, '', 21, '#e6f3ef', 600).setOrigin(0, 0.5);
     this.root.add([this.hintBg, this.hintT]);
     // ---- cast power
@@ -100,7 +101,7 @@ export class Hud {
     this.root.add(this.fightC);
     // ---- prompt
     this.promptC = s.add.container(960, 540).setVisible(false);
-    const pb = s.add.nineslice(0, 0, 'ui_panel_result', undefined, 520, 110, 30, 30, 30, 30);
+    const pb = new Box(s, 0, 0, 520, 110, 'ui_panel_result');
     this.promptT = txt(s, 0, 0, '', 40, COL.gold, 800).setOrigin(0.5);
     this.promptC.add([pb, this.promptT]);
     this.root.add(this.promptC);
@@ -118,7 +119,7 @@ export class Hud {
     this.baitIcon.setTexture(i.baitIcon);
     this.baitT.setText(`Mồi: ${i.bait}  ·  ${i.hook}`);
     this.depthT.setText(`Độ sâu mồi: ${i.depth}   (cuộn chuột / [ ])`);
-    this.windT.setText(`Gió: ${['lặng', 'nhẹ', 'vừa', 'mạnh'][Math.min(3, Math.round(Math.abs(i.wind)))]} ${i.wind > 0.2 ? '→' : i.wind < -0.2 ? '←' : ''}`);
+    this.windT.setText(`${i.weather ?? ''} · Gió ${['lặng', 'nhẹ', 'vừa', 'mạnh'][Math.min(3, Math.round(Math.abs(i.wind)))]} ${i.wind > 0.2 ? '→' : i.wind < -0.2 ? '←' : ''}`);
     this.moneyT.setText(`Cá đã bắt: ${i.caught}`);
     this.lvlT.setText(`Nặng nhất: ${i.best}`);
   }
@@ -127,14 +128,16 @@ export class Hud {
     this.questT.setText(lines.join('\n'));
   }
 
-  hint(s: string, top = false) {
+  hint(s: string, top: boolean | number = false) {
     this.hintT.setText(s);
     const w = Math.max(200, this.hintT.width + 50);
-    this.hintBg.setVisible(!!s).setSize(w, 56);
+    this.hintBg.setVisible(!!s);
+    this.hintBg.setBoxSize(w, 56);
     this.hintT.setVisible(!!s);
     if (top) {
-      this.hintBg.setPosition(960 - w / 2, 372);
-      this.hintT.setPosition(960 - w / 2 + 22, 344);
+      const y = typeof top === 'number' ? top : 372;
+      this.hintBg.setPosition(960 - w / 2, y);
+      this.hintT.setPosition(960 - w / 2 + 22, y - 28);
     } else {
       this.hintBg.setPosition(30, 1036);
       this.hintT.setPosition(52, 1008);
@@ -151,20 +154,9 @@ export class Hud {
     this.sweetRect.setX(520 * p);
   }
 
-  showFight(f: FightState | null, labels: Record<string, string>) {
-    this.fightC.setVisible(!!f);
-    if (!f) return;
-    const t = f.tension;
-    const col = t < 60 ? COL.green : t < 85 ? COL.yellow : COL.red;
-    this.tensionBar.set(t / 100, col);
-    this.tensionT.setText(String(Math.round(t)));
-    this.tensionIcon.setText(t < 60 ? '✓' : t < 85 ? '!' : '‼').setColor(t < 60 ? '#45c97a' : t < 85 ? '#f2c94c' : '#ff5a3c');
-    this.staminaBar.set(f.fishStamina / 100);
-    this.lineBar.set(f.lineIntegrity / 100, f.lineIntegrity > 50 ? 0xd7e2e6 : 0xff8a5a);
-    this.hookBar.set(f.hookHold / 100, f.hookHold > 40 ? undefined : 0xff8a5a);
-    this.phaseT.setText('Cá: ' + (labels[f.phase] ?? '') + (f.dragSlipping ? '  ·  máy đang xả dây' : ''));
-    const warn = f.lineIntegrity < 45 ? 'DÂY SẮP ĐỨT — NHẢ DÂY!' : f.headShake ? 'CÁ LẮC ĐẦU — NGỪNG THU DÂY!' : t > 85 ? 'LỰC CĂNG QUÁ CAO!' : f.hookHold < 30 ? 'Lưỡi sắp tuột — giữ dây vừa căng!' : f.tension < 8 ? 'Dây đang chùng — thu dây!' : '';
-    this.warnT.setText(warn).setAlpha(warn ? 0.65 + 0.35 * Math.sin(this.scene.time.now / 90) : 0).setColor(f.tension < 8 && f.lineIntegrity >= 45 ? '#f2c94c' : '#ff5a3c');
+  /** legacy fight panel — replaced by FightHud (Fish Fight System) */
+  showFight(_f: null) {
+    this.fightC.setVisible(false);
   }
 
   prompt(s: string | null) {
@@ -180,7 +172,7 @@ export class Hud {
     const y = 250 + this.toasts.length * 70;
     const c = s.add.container(960, y).setScrollFactor(0).setDepth(900);
     const t = txt(s, 0, 0, msg, 25, color, 700, { align: 'center', wordWrap: { width: 900 } }).setOrigin(0.5);
-    const bg = s.add.nineslice(0, 0, 'ui_toast', undefined, Math.min(1000, t.width + 80), t.height + 30, 30, 30, 20, 20);
+    const bg = new Box(s, 0, 0, Math.min(1000, t.width + 80), t.height + 30, 'ui_toast');
     c.add([bg, t]).setAlpha(0);
     this.toasts.push(c);
     s.tweens.add({ targets: c, alpha: 1, duration: 200 });
