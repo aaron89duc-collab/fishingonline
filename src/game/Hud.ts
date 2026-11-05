@@ -40,7 +40,7 @@ export class Hud {
   touchAlt: Button;
   buttons: Record<string, Button> = {};
 
-  constructor(private scene: Phaser.Scene, handlers: Record<string, () => void>, touch: boolean) {
+  constructor(private scene: Phaser.Scene, handlers: Record<string, () => void>, private touch: boolean) {
     const s = scene;
     this.root = s.add.container(0, 0).setScrollFactor(0).setDepth(700);
     // ---- top-left info panel
@@ -106,7 +106,7 @@ export class Hud {
     this.promptC.add([pb, this.promptT]);
     this.root.add(this.promptC);
     // ---- touch controls (mobile)
-    this.touchC = s.add.container(0, 0).setVisible(touch);
+    this.touchC = s.add.container(0, 0).setVisible(false); // replaced by TouchControls
     this.touchMain = new Button(s, 1790, 600, 'THU DÂY', () => undefined, { w: 190, h: 150, key: 'ui_button_round', size: 26 });
     this.touchAlt = new Button(s, 1600, 480, 'NHẢ DÂY', () => undefined, { w: 150, h: 120, key: 'ui_button_round', size: 22 });
     this.touchC.add([this.touchMain, this.touchAlt]);
@@ -118,7 +118,7 @@ export class Hud {
     this.timeT.setText(fmtHour(i.hour));
     this.baitIcon.setTexture(i.baitIcon);
     this.baitT.setText(`Mồi: ${i.bait}  ·  ${i.hook}`);
-    this.depthT.setText(`Độ sâu mồi: ${i.depth}   (cuộn chuột / [ ])`);
+    this.depthT.setText(`Độ sâu mồi: ${i.depth}${this.touch ? '' : '   (cuộn chuột / [ ])'}`);
     this.windT.setText(`${i.weather ?? ''} · Gió ${['lặng', 'nhẹ', 'vừa', 'mạnh'][Math.min(3, Math.round(Math.abs(i.wind)))]} ${i.wind > 0.2 ? '→' : i.wind < -0.2 ? '←' : ''}`);
     this.moneyT.setText(`Cá đã bắt: ${i.caught}`);
     this.lvlT.setText(`Nặng nhất: ${i.best}`);
@@ -129,6 +129,7 @@ export class Hud {
   }
 
   hint(s: string, top: boolean | number = false) {
+    if (this.touch) s = '';
     this.hintT.setText(s);
     const w = Math.max(200, this.hintT.width + 50);
     this.hintBg.setVisible(!!s);

@@ -17,6 +17,7 @@ import { sfx } from '../game/sfx';
 import type { UIScene } from './UIScene';
 import { Weather, type WeatherKind } from '../core/weather';
 import { WeatherView } from '../game/WeatherView';
+import { TouchControls } from '../game/TouchControls';
 
 type Mode = 'idle' | 'charging' | 'flight' | 'wait' | 'stuck' | 'fight' | 'landing' | 'result' | 'retrieve' | 'escaped';
 
@@ -72,12 +73,16 @@ export class FishingScene extends Phaser.Scene {
   private lastFightMessageAt = 0;
   private surfaceFish!: Phaser.GameObjects.Image;
   private netGuide!: Phaser.GameObjects.Graphics;
+  private touchControls?: TouchControls;
+  private waterPointer: number | null = null;
 
   constructor() {
     super('fishing');
   }
 
   create() {
+    this.touchControls = undefined;
+    this.waterPointer = null;
     this.hud = undefined!;
     this.modal = null;
     this.auth = new LocalAuthority();
@@ -116,7 +121,7 @@ export class FishingScene extends Phaser.Scene {
 
   private setupUi() {
     const u = this.ui;
-    const touch = this.sys.game.device.input.touch && !this.sys.game.device.os.desktop;
+    const touch = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 1;
     this.rig = new RodRig(u);
     this.netGuide = u.add.graphics().setDepth(515);
     // darkens world + hands + line at night, but stays under the HUD (depth 700)
@@ -125,27 +130,54 @@ export class FishingScene extends Phaser.Scene {
     this.hangFloat = u.add.image(0, 0, this.floatKey()).setOrigin(0.5, 0).setScale(0.42).setDepth(495);
     for (let i = 0; i < 10; i++) this.trajDots.push(u.add.image(0, 0, 'traj_dot').setDepth(480).setAlpha(0));
     this.hud = new Hud(u, { help: () => this.openHelp(), menu: () => this.toMenu() }, touch);
-    this.fightHud = new FightHud(u);
-    const tm = this.hud.touchMain, ta = this.hud.touchAlt;
-    tm.on('pointerdown', () => { this.input2.touchReel = true; this.onPrimaryDown(true); });
-    tm.on('pointerup', () => (this.input2.touchReel = false));
-    tm.on('pointerout', () => (this.input2.touchReel = false));
-    ta.on('pointerdown', () => { this.input2.touchRelease = true; if (this.mode === 'stuck') this.retrieve(); });
-    ta.on('pointerup', () => (this.input2.touchRelease = false));
-    ta.on('pointerout', () => (this.input2.touchRelease = false));
+    this.fightHud = new FightHud(u, touch);
+    if (touch) this.touchControls = new TouchControls(u, {
+      primaryDown: () => { sfx.unlock(); if (!this.modal) this.onPrimaryDown(true); },
+      primaryUp: () => { if (!this.modal) this.onPrimaryUp(); },
+      retrieve: () => {
+        if (this.mode === 'charging') { this.mode = 'idle'; this.power = 0; }
+        else this.retrieve();
+      },
+      net: () => this.toggleNet(), gear: () => this.openLoadout(),
+      bait: () => {
+        const baits = Object.keys(BAIT_BY_ID) as BaitId[];
+        this.switchBait(baits[(baits.indexOf(this.auth.profile.bait) + 1) % baits.length]);
+      },
+      depth: delta => this.changeDepth(delta), speed: value => this.setGear(value),
+      interrupt: () => {
+        this.waterPointer = null; this.strike = null;
+        this.input2.left = false; this.input2.right = false;
+        if (this.mode === 'charging') { this.mode = 'idle'; this.power = 0; }
+      },
+    });
 
     const inp = u.input;
     inp.on('pointerdown', (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
       sfx.unlock();
       if (over.length || this.modal) return;
+      if (this.touchControls) {
+        this.touchControls.startWaterPointer(p.id);
+        if (this.waterPointer !== null) return;
+        this.waterPointer = p.id;
+        this.onMove(p.x, p.y);
+        return; // Touching the lake aims/drags the net; dedicated buttons act.
+      }
       if (p.rightButtonDown()) this.onSecondaryDown();
       else this.onPrimaryDown(false);
     });
     inp.on('pointerup', (p: Phaser.Input.Pointer) => {
+      if (this.touchControls) {
+        if (this.touchControls.owns(p.id) || this.waterPointer !== p.id) return;
+        this.waterPointer = null;
+        return;
+      }
       if (p.button === 2) this.input2.right = false;
       else this.onPrimaryUp();
     });
-    inp.on('pointermove', (p: Phaser.Input.Pointer) => this.onMove(p.x, p.y));
+    inp.on('pointermove', (p: Phaser.Input.Pointer) => {
+      if (this.touchControls && (!p.isDown || this.touchControls.owns(p.id) || this.waterPointer !== p.id)) return;
+      this.onMove(p.x, p.y);
+    });
     inp.on('wheel', (_p: unknown, _o: unknown, _dx: number, dy: number) => {
       if (this.mode === 'fight') this.setGear(this.reelGear + (dy > 0 ? -1 : 1));
       else this.changeDepth(dy > 0 ? -0.25 : 0.25);
@@ -167,7 +199,7 @@ export class FishingScene extends Phaser.Scene {
     kb.on('keydown-L', () => (this.modal ? this.closeModal() : this.openLoadout()));
     u.events.on('ui-click', () => sfx.click());
     sfx.setVolume(this.auth.profile.settings.volume);
-    this.hud.toast('Chào mừng đến Bờ cỏ! Rê chuột chọn hướng, giữ chuột trái để ném.', COL.text, 4200);
+    this.hud.toast(touch ? 'Chạm mặt nước để ngắm · giữ nút NÉM rồi thả để câu.' : 'Chào mừng đến Bờ cỏ! Rê chuột chọn hướng, giữ chuột trái để ném.', COL.text, 4200);
   }
 
   private floatKey() {
@@ -188,7 +220,6 @@ export class FishingScene extends Phaser.Scene {
   private onPrimaryDown(fromTouchBtn: boolean, fromSpace = false) {
     switch (this.mode) {
       case 'idle':
-        if (fromTouchBtn) return;
         this.mode = 'charging';
         this.power = 0;
         this.over = 0;
@@ -196,7 +227,7 @@ export class FishingScene extends Phaser.Scene {
       case 'wait':
         // Hook Setting: direction from A/D held at the strike, strength from how long the strike is held
         if (this.strike) break;
-        this.strike = { t0: this.time.now, dir: this.keys.A.isDown || this.keys.LEFT.isDown ? 'left' : this.keys.D.isDown || this.keys.RIGHT.isDown ? 'right' : 'up' };
+        this.strike = { t0: this.time.now, dir: this.touchControls?.direction ?? (this.keys.A.isDown || this.keys.LEFT.isDown ? 'left' : this.keys.D.isDown || this.keys.RIGHT.isDown ? 'right' : 'up') };
         this.rig.impulse(this.strike.dir === 'up' ? 18 : 12);
         break;
       case 'stuck':
@@ -255,7 +286,7 @@ export class FishingScene extends Phaser.Scene {
       c.onBottom = this.auth.profile.depth >= c.waterDepth - 0.05;
       this.auth.bite?.setContext({ baitDepth: Math.min(this.auth.profile.depth, c.waterDepth), onBottom: c.onBottom });
       this.float.lying = false;
-      if (c.onBottom) this.hud.toast('Mồi chạm đáy — phao nằm nghiêng (hợp cá trê).', COL.dim, 1800);
+      if (c.onBottom) this.hud.toast('Mồi chạm đáy — chú ý cả tín hiệu phao nổi.', COL.dim, 1800);
     }
   }
 
@@ -508,15 +539,19 @@ export class FishingScene extends Phaser.Scene {
       const ad = this.mode === 'idle' || this.mode === 'stuck'; // in 'wait' A/D chooses the strike direction
       if (k.LEFT.isDown && !this.strike || (k.A.isDown && ad)) v -= 1;
       if (k.RIGHT.isDown && !this.strike || (k.D.isDown && ad)) v += 1;
-      if (this.input.activePointer && this.ui.input.activePointer.x < 40 && this.ui.input.activePointer.y > 300) v -= 1;
-      if (this.ui.input.activePointer.x > 1880 && this.ui.input.activePointer.y > 300) v += 1;
+      if (this.touchControls?.held('left')) v -= 1;
+      if (this.touchControls?.held('right')) v += 1;
+      if (!this.touchControls) {
+        if (this.input.activePointer && this.ui.input.activePointer.x < 40 && this.ui.input.activePointer.y > 300) v -= 1;
+        if (this.ui.input.activePointer.x > 1880 && this.ui.input.activePointer.y > 300) v += 1;
+      }
       cam.scrollX = clamp(cam.scrollX + v * 520 * dt * this.auth.profile.settings.sensitivity, 0, this.lake.worldWidth - 1920);
       if (v) this.onMove(this.aim.sx, this.aim.sy);
     }
 
     this.lake.update(dt, this.hour, this.weather.cloud, this.wind);
     this.weatherView.update(dt, this.weather, this.auth.persp.H, this.lake.night);
-    this.auth.mendLine(dt, this.mode === 'wait' && (this.input2.right || this.input2.touchRelease), this.wind);
+    this.auth.mendLine(dt, this.mode === 'wait' && (this.input2.right || this.input2.touchRelease || !!this.touchControls?.held('mend')), this.wind);
     const evs = this.auth.tick(dt, this.hour);
     this.handleBiteEvents(evs);
     this.updateShadows(dt);
@@ -613,6 +648,10 @@ export class FishingScene extends Phaser.Scene {
       caught: this.auth.profile.stats.catches, best: this.bestCatch(),
       weather: this.weather.label,
     });
+    const fs = this.fightState;
+    this.touchControls?.update(this.mode, !!this.modal, this.netOut,
+      fs ? `Căng dây ${Math.round(fs.lineTension)}% · sức cá ${Math.round(fs.fishStamina)}%\nHãm ${Math.round(fs.drag*100)}% · góc cần ${Math.round(fs.rodAngle*90)}°\nTốc thu ${this.reelGear} · dây chùng ${fs.slack.toFixed(2)} m` : '',
+      this.auth.baitName(), this.auth.profile.depth, this.reelGear);
     sfx.update(dt, this.mode === 'fight' ? (this.fightState?.reeling ? 1 : 0) : this.mode === 'retrieve' ? 1 : 0, tension, this.lake.night > 0.6);
     this.debug();
   }
@@ -806,9 +845,9 @@ export class FishingScene extends Phaser.Scene {
 
   private fightTick(dt: number): FishFightState | null {
     const k = this.keys;
-    const left = k.A.isDown || k.LEFT.isDown, right = k.D.isDown || k.RIGHT.isDown;
-    const up = k.W.isDown || k.UP.isDown, down = k.S.isDown || k.DOWN.isDown;
-    const reelHeld = !this.netOut && (this.input2.left || this.input2.touchReel);
+    const left = k.A.isDown || k.LEFT.isDown || this.touchControls?.held('left'), right = k.D.isDown || k.RIGHT.isDown || this.touchControls?.held('right');
+    const up = k.W.isDown || k.UP.isDown || this.touchControls?.held('raise'), down = k.S.isDown || k.DOWN.isDown || this.touchControls?.held('lower');
+    const reelHeld = !this.netOut && (this.input2.left || this.input2.touchReel || !!this.touchControls?.held('reel'));
     this.input2.reel = reelHeld;
     const prev = this.fightState;
     const dist = prev?.dist ?? 5;
@@ -820,7 +859,7 @@ export class FishingScene extends Phaser.Scene {
       reel: reelHeld ? this.reelGear : 0,
       balance: (right ? 1 : 0) - (left ? 1 : 0),
       rodCmd: (up ? 1 : 0) - (down ? 1 : 0),
-      dragCmd: (k.E.isDown ? 1 : 0) - (k.Q.isDown ? 1 : 0),
+      dragCmd: (k.E.isDown || this.touchControls?.held('dragUp') ? 1 : 0) - (k.Q.isDown || this.touchControls?.held('dragDown') || this.touchControls?.held('mend') || this.input2.right ? 1 : 0),
       netOut: this.netOut,
       netX,
       netDistance: clamp(p.dOf(this.aim.sy - 30), 0.5, 4.5),

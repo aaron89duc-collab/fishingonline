@@ -26,7 +26,7 @@ export class FightHud {
   private Y = 760;
   private W = 1140;
 
-  constructor(private scene: Phaser.Scene) {
+  constructor(private scene: Phaser.Scene, private mobile = false) {
     const s = scene;
     const X = this.X, Y = this.Y, W = this.W;
     this.c = s.add.container(0, 0).setDepth(720).setVisible(false);
@@ -63,7 +63,7 @@ export class FightHud {
 
   update(s: FishFightState, fishName: string, profileName: string, diff: DifficultyProfile, slipAt: number, netPossible: boolean) {
     // Keep the water/fish/net visible at the bottom of the screen while landing.
-    this.c.setVisible(s.phase !== 'landing');
+    this.c.setVisible(!this.mobile && s.phase !== 'landing');
     const g = this.g;
     const X = this.X + 30, Y = this.Y, W = this.W - 60;
     g.clear();
@@ -137,7 +137,7 @@ export class FightHud {
     const L = s.landing;
     const landing = s.phase === 'landing';
     this.landC.setVisible(landing);
-    this.promptT.setText(!landing && netPossible ? 'F — ĐƯA VỢT RA' : '');
+    this.promptT.setText(!this.mobile && !landing && netPossible ? 'F — ĐƯA VỢT RA' : '');
     if (landing) {
       const lg = this.landG;
       lg.clear();
@@ -155,7 +155,8 @@ export class FightHud {
         }
       });
       lg.fillStyle(0xffffff, 0.9).fillRect(-330, 30, 660 * L.ready, 6);
-      this.landT.setText(L.reason || (L.window === 'lunge' ? 'Chờ… cá đang lao' : L.ready > 0.5 ? 'VỚT NGAY! (Click / Space)' : 'Giữ vợt dưới cá…'));
+      const instruction = L.reason || (L.window === 'lunge' ? 'Chờ… cá đang lao' : L.ready > 0.5 ? 'VỚT NGAY! (Click / Space)' : 'Giữ vợt dưới cá…');
+      this.landT.setText(this.mobile ? instruction.replace(/click \/ Space|Click \/ Space/g, 'chạm NHẤC VỢT') : instruction);
     }
   }
 }
