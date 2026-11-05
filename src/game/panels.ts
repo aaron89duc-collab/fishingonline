@@ -73,14 +73,14 @@ export function helpPanel(scene: Phaser.Scene, a: LocalAuthority, onClose: () =>
     b.removeAll(true);
     const lines = [
       ['Ném phao', 'Rê chuột chọn hướng · GIỮ chuột trái tích lực · THẢ để ném · R = thu cần'],
-      ['Đọc phao', 'Nhấp nhô đều = sóng · giật ngắn = cá rỉa · chìm hẳn / bị kéo = cá ăn'],
-      ['Giật cần', 'Space / click khi phao chìm hẳn · giữ A/D để giật sang ngang · bấm nhanh = nhẹ, giữ lâu = mạnh'],
-      ['Thăng bằng', 'A / D (← →) — chống lại lực kéo của cá, giữ kim trong vùng xanh, lệch đỏ lâu là ngã'],
+      ['Đọc phao', 'Sóng nhấp nhô đều · cá có thể kéo chìm, kéo ngang hoặc nâng phao khi mồi ở đáy'],
+      ['Giật cần', 'Space / click khi phao bị kéo hoặc nổi bất thường · A/D chọn hướng · giữ lâu tăng lực'],
+      ['Ép cần ngang', 'A / D (← →) — đổi hướng cần, dẫn cá khỏi sen; không có thanh giữ thăng bằng'],
       ['Góc cần', 'W / S (↑ ↓) — cá NHẢY: hạ cần · cá LẶN / nằm đáy: dựng cần · vạch xanh là góc tốt'],
       ['Lực hãm', 'Q giảm / E tăng — lỏng quá cá kéo hết dây, chặt quá đứt dây; vạch trắng = điểm xả dây'],
       ['Thu dây', 'Giữ chuột trái · 1 / 2 / 3 hoặc cuộn chuột = tốc độ thu · cá lắc đầu: ngừng thu'],
-      ['Vớt cá', 'Cá mệt + sát bờ: F đưa vợt · rê chuột đặt vợt DƯỚI cá · chờ cá quay đầu / mệt rồi CLICK'],
-      ['Khác', 'L = đồ câu · [ ] / cuộn chuột = độ sâu · 1/2 = đổi mồi · ← → = lia camera · F1 = debug'],
+      ['Vớt cá', 'F đưa vợt · chuột X/Y đặt miệng vợt dưới cá · đầu cá vào trước · thân vào đủ rồi CLICK'],
+      ['Chuẩn bị dây', 'Giữ chuột phải khi chờ để thu dây chùng · R thu cần · L đồ câu · [ ] chỉnh độ sâu'],
     ];
     lines.forEach(([k, v], i) => {
       b.add(txt(scene, 50, 96 + i * 42, k, 21, COL.gold, 800));

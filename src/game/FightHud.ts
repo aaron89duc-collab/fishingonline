@@ -34,7 +34,7 @@ export class FightHud {
     this.g = s.add.graphics();
     this.fishT = txt(s, X + 30, Y + 14, '', 22, COL.text, 800);
     this.tellT = txt(s, X + W / 2, Y - 34, '', 26, COL.gold, 800).setOrigin(0.5);
-    const lb = txt(s, X + 30, Y + 54, 'THĂNG BẰNG  (A / D)', 18, COL.dim, 800);
+    const lb = txt(s, X + 30, Y + 54, 'ÉP CẦN NGANG  (A / D)', 18, COL.dim, 800);
     this.balT = txt(s, X + 300, Y + 54, '', 18, COL.text, 700);
     this.balPct = txt(s, X + W - 30, Y + 54, '', 20, COL.text, 800).setOrigin(1, 0);
     const lt = txt(s, X + 30, Y + 124, 'LỰC CĂNG DÂY', 18, COL.dim, 800);
@@ -50,7 +50,7 @@ export class FightHud {
     this.landC = s.add.container(960, 190).setDepth(720).setVisible(false);
     this.landG = s.add.graphics();
     this.landT = txt(s, 0, 52, '', 22, COL.text, 700, { align: 'center' }).setOrigin(0.5, 0);
-    const lh = txt(s, 0, -58, 'CỬA SỔ VỚT CÁ', 20, COL.gold, 800).setOrigin(0.5);
+    const lh = txt(s, 0, -58, 'DẪN ĐẦU CÁ VÀO VỢT', 20, COL.gold, 800).setOrigin(0.5);
     this.landC.add([this.landG, this.landT, lh]);
     this.promptT = txt(s, 960, 640, '', 40, COL.gold, 800).setOrigin(0.5).setDepth(720).setStroke('#0b1d22', 8);
   }
@@ -62,7 +62,8 @@ export class FightHud {
   }
 
   update(s: FishFightState, fishName: string, profileName: string, diff: DifficultyProfile, slipAt: number, netPossible: boolean) {
-    this.c.setVisible(true);
+    // Keep the water/fish/net visible at the bottom of the screen while landing.
+    this.c.setVisible(s.phase !== 'landing');
     const g = this.g;
     const X = this.X + 30, Y = this.Y, W = this.W - 60;
     g.clear();
@@ -84,8 +85,9 @@ export class FightHud {
     g.fillStyle(bcol, 1).fillTriangle(bx - 12, by - bh / 2 - 14, bx + 12, by - bh / 2 - 14, bx, by - bh / 2 + 2);
     g.fillStyle(0xffffff, 1).fillRect(bx - 2, by - bh / 2, 4, bh);
     const pct = Math.round(100 - off);
-    this.balPct.setText(`${pct}%`).setColor(bcol === 0x45c97a ? '#7ef0a8' : bcol === 0xf2c94c ? '#f2d77a' : '#ff9a85');
-    this.balT.setText(off <= diff.balanceZone ? 'Ổn định' : s.balance > 0 ? 'Lệch PHẢI — chống sang trái (A)' : 'Lệch TRÁI — chống sang phải (D)');
+    this.balPct.setText(`${s.lineOut.toFixed(1)} m dây`).setColor(COL.text);
+    this.balT.setText(Math.abs(s.balance) < 8 ? 'Cần giữa — A/D đổi hướng ép' : s.balance > 0 ? 'Đang ép sang PHẢI' : 'Đang ép sang TRÁI');
+    void pct;
 
     // ---- Line tension with the drag slip point
     const ty = Y + 160, th = 28, tw = W - 90;
@@ -102,7 +104,7 @@ export class FightHud {
 
     // ---- bottom row: drag, reel gear, stamina, hook strength
     this.dragT.setText(`Lực hãm ${Math.round(s.drag * 100)}%  (Q / E)${s.slipping ? '  · đang xả dây' : ''}`).setColor(s.slipping ? '#f2d77a' : COL.text);
-    this.reelT.setText(`Tốc thu ${s.reelGear}  (1 / 2 / 3)${s.reeling ? '  · đang thu' : ''}`);
+    this.reelT.setText(s.slack > 0.15 ? `Dây chùng ${s.slack.toFixed(2)} m — thu nhẹ` : `Tốc ${s.reelGear} · thu ${s.retrieveRate.toFixed(1)} m/s${s.slipping ? ` · xả ${s.slipRate.toFixed(1)} m/s` : ''}`);
     const small = (x: number, v: number, col: number) => {
       const y = Y + 248;
       g.fillStyle(0x0b1a20, 0.95).fillRoundedRect(x, y - 8, 230, 16, 8);
@@ -126,7 +128,7 @@ export class FightHud {
 
     // ---- warnings
     const warn = s.lineTension > 90 ? 'DÂY SẮP ĐỨT — NỚI LỰC HÃM (Q), NGỪNG THU!'
-      : off > 85 ? 'SẮP MẤT THĂNG BẰNG!'
+      : s.slack > 0.6 ? 'DÂY ĐANG CHÙNG — THU NHẸ!'
       : s.hookStrength < 25 ? 'Lưỡi sắp tuột — giữ dây vừa căng'
       : s.lineTension < 8 && s.phase !== 'landing' ? 'Dây chùng — thu dây!' : '';
     this.warnT.setText(warn).setAlpha(warn ? 0.6 + 0.4 * Math.sin(this.scene.time.now / 90) : 0);

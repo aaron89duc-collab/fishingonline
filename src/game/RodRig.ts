@@ -137,7 +137,7 @@ export class RodRig {
   }
 
   /** landing mini-game: the net follows the mouse while F is held out */
-  holdNet(on: boolean, x = 0, y = 0, dt = 0.016) {
+  holdNet(on: boolean, x = 0, y = 0, dt = 0.016, scale = 0.7) {
     const n = this.net;
     if (!on) {
       if (n.visible && !this.scene.tweens.isTweening(n)) n.setPosition(n.x - 2400 * dt, n.y + 1600 * dt);
@@ -146,7 +146,8 @@ export class RodRig {
     }
     if (!n.visible) n.setVisible(true).setPosition(-300, 1250).setRotation(-0.6).setAlpha(1);
     const k = Math.min(1, dt * 9);
-    n.setPosition(n.x + (x - 180 - n.x) * k, n.y + (y + 40 - n.y) * k).setRotation(-0.15);
+    n.setScale(scale);
+    n.setPosition(n.x + (x - 440 * scale - n.x) * k, n.y + (y + 35 * scale - n.y) * k).setRotation(0);
   }
 
   showNet(x: number, y: number, done: () => void) {

@@ -37,7 +37,7 @@ export class MenuScene extends Phaser.Scene {
     };
     draw();
     if (p.stats.catches) txt(this, 960, 890, `Đã bắt ${p.stats.catches} con cá · tổng ${p.stats.totalWeight.toFixed(2).replace('.', ',')} kg`, 22, COL.dim, 600).setOrigin(0.5);
-    txt(this, 960, 1040, 'Space giật cần · A/D thăng bằng · W/S góc cần · Q/E lực hãm · giữ chuột trái thu dây · F vợt · L đồ câu · H hướng dẫn', 20, COL.dim, 600).setOrigin(0.5);
+    txt(this, 960, 1040, 'Space giật cần · A/D ép cần ngang · W/S nâng/hạ cần · Q/E lực hãm · chuột trái thu dây · F vợt · L đồ câu · H hướng dẫn', 20, COL.dim, 600).setOrigin(0.5);
     this.input.keyboard?.once('keydown-ENTER', start);
     this.input.keyboard?.once('keydown-SPACE', start);
   }

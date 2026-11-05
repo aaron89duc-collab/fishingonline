@@ -4,6 +4,7 @@ import { Bar, Box, Button, COL, fmtHour, iconButton, panel, txt } from './ui';
 export interface HudInfo {
   zone: string; hour: number; bait: string; baitIcon: string; hook: string; depth: string; wind: number;
   caught: number; best: string;
+  weather?: string;
 }
 
 export class Hud {
@@ -118,7 +119,7 @@ export class Hud {
     this.baitIcon.setTexture(i.baitIcon);
     this.baitT.setText(`Mồi: ${i.bait}  ·  ${i.hook}`);
     this.depthT.setText(`Độ sâu mồi: ${i.depth}   (cuộn chuột / [ ])`);
-    this.windT.setText(`Gió: ${['lặng', 'nhẹ', 'vừa', 'mạnh'][Math.min(3, Math.round(Math.abs(i.wind)))]} ${i.wind > 0.2 ? '→' : i.wind < -0.2 ? '←' : ''}`);
+    this.windT.setText(`${i.weather ?? ''} · Gió ${['lặng', 'nhẹ', 'vừa', 'mạnh'][Math.min(3, Math.round(Math.abs(i.wind)))]} ${i.wind > 0.2 ? '→' : i.wind < -0.2 ? '←' : ''}`);
     this.moneyT.setText(`Cá đã bắt: ${i.caught}`);
     this.lvlT.setText(`Nặng nhất: ${i.best}`);
   }

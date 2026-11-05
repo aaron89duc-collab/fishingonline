@@ -1,5 +1,6 @@
 import { Rng, clamp, approach } from './rng';
 import type { FishDefinition } from './data';
+import { solveLine, type LineState } from './linePhysics';
 
 /**
  * Fish Fight System — đấu sức với cá.
@@ -46,6 +47,8 @@ export interface FightControls {
   netOut: boolean; // F
   netX: number; // lateral metres the net is aimed at (from mouse)
   scoop: boolean; // one-shot: player tries to lift the net
+  netDepth?: number; // metres below surface, controlled by pointer Y
+  netDistance?: number; // distance of net mouth from bank (pointer Y)
 }
 
 export interface FishFightState {
@@ -68,8 +71,13 @@ export interface FishFightState {
   lateral: number; // m
   depth: number; // m below surface (sulking / diving fish are deep)
   slipping: boolean; // drag is giving line
+  lineOut: number; // actual line off spool, distinct from fish distance
+  slack: number; // metres of loose line
+  rodLoad: number;
+  slipRate: number;
+  retrieveRate: number;
   controlLoss: number; // 0..1 from bad balance
-  landing: { window: LandingWindow; fishX: number; netX: number; netOut: boolean; ready: number; reason: string };
+  landing: { window: LandingWindow; fishX: number; netX: number; netOut: boolean; ready: number; reason: string; heading: number; netDepth: number; netDistance: number; inside: boolean };
   jumpNow: boolean;
   escapeReason?: EscapeReason;
   message?: string;
@@ -169,16 +177,19 @@ export class FishFight {
   private speed: number;
   private staminaSec: number;
   private bT = 0; // time left in current behavior
-  private heavyT = 0; // time spent at heavy imbalance
   private redT = 0;
   private slackT = 0;
-  private sulkT = 0;
   private finalBurstDone = false;
   private burstMul = 1;
-  private landingT = 0;
   private lastNetX = 0;
   private netSpeed = 0;
-  private winT = 0;
+  private line: LineState;
+  private snagTime = 0;
+  private obstacles: Array<{ d: number; lateral: number; rd: number; rx: number }> = [];
+
+  setObstacles(obstacles: Array<{ d: number; lateral: number; rd: number; rx: number }>) {
+    this.obstacles = obstacles;
+  }
 
   constructor(
     public fish: FishDefinition,
@@ -189,8 +200,9 @@ export class FishFight {
     private rng: Rng,
     public difficulty: Difficulty,
     hookStrength: number, // from Hook Setting
-    private cover: number, // 0..1 obstacles in the zone
+    _cover: number, // retained constructor compatibility; actual obstacles supplied separately
   ) {
+    this.line = { lineOut: Math.hypot(startDist, startLateral, 0.6) + 0.55 - 0.35, slack: 0, stretch: 0.35, tension: 45, rodLoad: 0.45, slipRate: 0, retrieveRate: 0 };
     this.prof = PROFILES[ARCHETYPE_OF[fish.id] ?? 'light'];
     this.diff = DIFFICULTY[difficulty];
     this.size = clamp(weight / fish.maxWeight, 0.05, 1);
@@ -202,8 +214,8 @@ export class FishFight {
       phase: 'fighting', behavior: 'HOOKED', next: null, tell: '', fishForce: 0, fishDir: rng.chance(0.5) ? 1 : -1,
       balance: 0, lineTension: 45, fishStamina: 100, hookStrength: clamp(hookStrength, 5, 100), rodAngle: 0.55,
       idealAngle: SPEC.HOOKED.ideal, drag: 0.5, reelGear: 2, reeling: false, dist: startDist, lateral: startLateral, depth: 0.6,
-      slipping: false, controlLoss: 0,
-      landing: { window: 'none', fishX: startLateral, netX: 0, netOut: false, ready: 0, reason: '' },
+      slipping: false, controlLoss: 0, lineOut: this.line.lineOut, slack: 0, rodLoad: 0.45, slipRate: 0, retrieveRate: 0,
+      landing: { window: 'none', fishX: startLateral, netX: 0, netOut: false, ready: 0, reason: '', heading: -1, netDepth: 0.35, netDistance: startDist, inside: false },
       jumpNow: false, elapsed: 0, redTime: 0,
     };
     this.bT = rng.range(0.6, 1.0);
@@ -221,6 +233,9 @@ export class FishFight {
       if (k === 'RESTING' || k === 'FAKE_REST') v *= 0.6 + tired * 1.6;
       if (k === 'BURST' || k === 'JUMPING') v *= (0.6 + this.size) * (1 - tired * 0.6) * this.diff.fishTurn;
       if (k === 'TURNING') v *= this.diff.fishTurn;
+      if (k === 'TURNING') v *= 1 + s.lineTension / 100;
+      if (k === 'DIVING' && s.dist < 5) v *= 1.5;
+      if (k === 'BURST') v *= s.lineTension > 75 && s.fishStamina > 35 ? 1.6 : 0.8;
       if (k === 'FAKE_REST' || k === 'SULKING') v *= 0.4 + this.size; // big fish know more tricks
       if (k === s.behavior) v *= 0.35; // rarely repeat
       w[k] = v;
@@ -247,8 +262,20 @@ export class FishFight {
   }
 
   update(dt: number, c: FightControls): FishFightState {
+    // Integrate at <= 60 Hz even when QA speed or a slow frame supplies a large dt.
+    if (!Number.isFinite(dt) || dt <= 0) return this.s;
+    if (dt > 1 / 60 + 1e-8) {
+      const steps = Math.ceil(dt * 60);
+      let jumped = false;
+      for (let i = 0; i < steps; i++) {
+        this.update(dt / steps, { ...c, scoop: c.scoop && i === steps - 1 });
+        jumped ||= this.s.jumpNow;
+        if (this.s.phase === 'landed' || this.s.phase === 'escaped') break;
+      }
+      this.s.jumpNow = jumped;
+      return this.s;
+    }
     const s = this.s;
-    const r = this.rng;
     s.jumpNow = false;
     s.message = undefined;
     if (s.phase === 'landed' || s.phase === 'escaped') return s;
@@ -256,7 +283,7 @@ export class FishFight {
 
     // ---------------- angler controls
     s.rodAngle = clamp(s.rodAngle + c.rodCmd * 0.9 * dt, 0, 1);
-    s.drag = clamp(s.drag + c.dragCmd * 0.45 * dt, 0.05, 1);
+    s.drag = clamp(s.drag + c.dragCmd * 0.25 * dt, 0.05, 1);
     if (c.reel > 0) s.reelGear = c.reel;
     s.reeling = c.reel > 0;
 
@@ -283,64 +310,57 @@ export class FishFight {
     if (s.behavior === 'JUMPING') F *= this.bT > 0.6 ? 2.4 : 0.4; // violent leap then slack
     s.fishForce = F;
 
-    // ---------------- Angler Balance (A / D against the lateral pull)
+    // ---------------- Side pressure: A/D steers the rod, never a falling minigame.
     const lateralPull = F * s.fishDir * spec.lateral * this.prof.balanceMult / this.gear.rodPower;
     const counter = c.balance; // + = lean right
     // a lateral pull of +1 pushes the angler right; leaning the opposite way cancels it; leaning with no pull overbalances
-    const push = lateralPull * 95 + counter * 105;
-    s.balance += push * dt;
-    s.balance -= s.balance * (Math.abs(counter) < 0.1 ? 0.9 : 0.25) * dt; // natural recovery when not fighting the rod
-    s.balance = clamp(s.balance, -100, 100);
+    s.balance = approach(s.balance, counter * 65, 4, dt);
     const zone = this.diff.balanceZone;
-    const off = Math.abs(s.balance);
-    s.controlLoss = off <= zone ? 0 : clamp((off - zone) / (100 - zone), 0, 1);
-    if (off > 85) this.heavyT += dt;
-    else this.heavyT = Math.max(0, this.heavyT - dt);
-    if (off >= 99.5 || this.heavyT > 2.2) return this.escape('balance');
+    const sidePressure = clamp(-counter * s.fishDir, -1, 1);
+    s.controlLoss = clamp(Math.abs(lateralPull) * (1 - Math.max(0, sidePressure)) * 0.35, 0, 0.8);
+    void zone;
 
     // ---------------- Rod angle
     const [lo, hi] = spec.ideal;
     const tooLow = Math.max(0, lo - s.rodAngle);
     const tooHigh = Math.max(0, s.rodAngle - hi);
-    const absorb = (0.75 + 0.25 * this.gear.rodPower) * (1 - tooLow * 0.6);
 
-    // ---------------- Line tension (before drag)
-    const away = spec.away * (1 + s.controlLoss * 0.8 + tooLow * 1.2);
-    const reelLoad = s.reeling ? s.reelGear * 9 + F * s.reelGear * 9 * Math.max(0, away) : 0;
-    let raw = (F * (34 + 26 * Math.max(0, away)) + reelLoad + tooHigh * 70 + s.controlLoss * 18) / (absorb * this.gear.lineStrength);
-    if (s.behavior === 'SULKING' && s.rodAngle > lo) raw += 10; // lifting a sulking fish loads the line
-    // drag: line slips when tension exceeds the brake setting
-    const slipAt = 28 + 70 * s.drag * this.gear.maxDrag;
-    s.slipping = raw > slipAt;
-    let slipOut = 0;
-    if (s.slipping) {
-      // line leaves the spool, but never faster than the fish can actually swim
-      slipOut = Math.min((raw - slipAt) * 0.035, this.speed * Math.max(0.2, F) * 0.9);
-      raw = slipAt + (raw - slipAt) * 0.22;
-    }
-    s.lineTension = clamp(approach(s.lineTension, raw, 9, dt), 0, 110);
-
-    // ---------------- distance / lateral / depth
-    const swim = this.speed * F * 0.5 * away;
-    let reelIn = s.reeling ? s.reelGear * 0.75 * this.gear.reelSpeed * (1 - s.controlLoss * 0.85) * clamp(1.1 - F * 0.4, 0.1, 1) : 0;
-    if (s.behavior === 'SULKING') reelIn *= s.rodAngle > 0.72 && s.lineTension > 40 ? 0.35 : 0; // must lift first
-    s.dist = Math.max(0.5, s.dist + (swim - reelIn + slipOut) * dt);
-    s.lateral += s.fishDir * this.speed * spec.lateral * 0.5 * F * dt;
+    // Fish attempts to swim against tension. A raised rod takes up geometry;
+    // lowering it releases that length, which can be recovered with the reel.
+    const away = spec.away * (1 + s.controlLoss * 0.4 + tooLow * 0.6);
+    const swim = this.speed * F * 0.42 * away;
+    const pull = s.lineTension * 0.028 / (0.6 + this.power);
+    const anchored = s.behavior === 'SULKING' && s.rodAngle < 0.68;
+    s.dist = Math.max(0.65, s.dist + (swim - (anchored ? pull * 0.12 : pull)) * dt);
+    s.lateral += (s.fishDir * this.speed * spec.lateral * 0.28 * F
+      + counter * s.lineTension * 0.009 - s.lateral / Math.max(1, s.dist) * pull) * dt;
     s.lateral = clamp(s.lateral, -(2 + s.dist * 0.45), 2 + s.dist * 0.45);
-    const targetDepth = s.behavior === 'DIVING' || s.behavior === 'SULKING' ? 2.2 : s.behavior === 'JUMPING' ? 0 : s.behavior === 'EXHAUSTED' ? 0.2 : 0.8;
-    s.depth = approach(s.depth, targetDepth - (s.rodAngle - 0.5) * 0.6, 1.2, dt);
+    const targetDepth = s.behavior === 'DIVING' || s.behavior === 'SULKING' ? 2.2
+      : s.behavior === 'JUMPING' ? 0 : s.fishStamina < 35 && s.dist < 5 ? 0.12 : 0.8;
+    s.depth = Math.max(0, approach(s.depth, targetDepth - (s.rodAngle - 0.5) * 0.6, 1.2, dt));
+    const path = Math.hypot(s.dist, s.lateral, s.depth) + s.rodAngle;
+    const reel = s.reeling ? s.reelGear * 0.8 * this.gear.reelSpeed : 0;
+    solveLine(this.line, dt, path, reel, s.drag, this.gear.maxDrag,
+      this.gear.lineStrength, this.gear.rodPower);
+    s.lineTension = this.line.tension;
+    s.lineOut = this.line.lineOut;
+    s.slack = this.line.slack;
+    s.rodLoad = this.line.rodLoad;
+    s.slipRate = this.line.slipRate;
+    s.retrieveRate = this.line.retrieveRate;
+    s.slipping = s.slipRate > 0.02;
 
     // ---------------- Fish stamina (good control drains it; slack / bad balance lets it rest)
     const pressure = s.lineTension >= 25 && s.lineTension <= 85 ? 1 : s.lineTension > 85 ? 0.7 : s.lineTension / 25;
     const angleOk = tooLow + tooHigh < 0.05 ? 1 : 0.45;
-    const balOk = 1 - s.controlLoss * 0.8;
+    const balOk = (1 - s.controlLoss * 0.5) * (1 + Math.max(0, sidePressure) * 0.3);
     const restBonus = s.behavior === 'RESTING' && s.reeling ? 1.4 : 1;
     s.fishStamina -= (100 / this.staminaSec) * pressure * angleOk * balOk * restBonus * Math.sqrt(this.gear.rodPower) * 0.55 * dt;
     if (s.lineTension < 12) s.fishStamina += 3 * dt;
     s.fishStamina = clamp(s.fishStamina, 0, 100);
 
     // ---------------- Hook strength
-    if (s.lineTension < 8 && s.behavior !== 'EXHAUSTED') this.slackT += dt;
+    if (s.slack > 0.2 && s.behavior !== 'EXHAUSTED') this.slackT += dt;
     else this.slackT = Math.max(0, this.slackT - dt);
     if (this.slackT > 0.6) s.hookStrength -= 9 * dt;
     if (s.behavior === 'SHAKING' && s.lineTension > 65) s.hookStrength -= (s.lineTension - 55) * 0.5 * dt;
@@ -353,115 +373,88 @@ export class FishFight {
       s.redTime += dt;
     } else this.redT = Math.max(0, this.redT - dt * 0.5);
     if (s.lineTension >= 100 || this.redT > 1.4) return this.escape('line_break');
-    if (s.dist > this.gear.capacity) return this.escape('line_out');
+    if (s.lineOut > this.gear.capacity) return this.escape('line_out');
 
-    // ---------------- Snags: running toward cover with poor control, or sulking fish left at the bottom
-    if ((s.behavior === 'BURST' || s.behavior === 'RUNNING') && (s.controlLoss > 0.35 || s.drag < 0.25)) {
-      if (r.chance(this.prof.coverSeek * this.cover * 0.18 * dt)) return this.escape('snag');
-    }
-    if (s.behavior === 'SULKING' && s.rodAngle < 0.65) {
-      this.sulkT += dt;
-      if (this.sulkT > 5) return this.escape('snag');
-    } else this.sulkT = Math.max(0, this.sulkT - dt);
+    // Actual cover intersections, including the line segment from bank to fish.
+    // A brief brush is recoverable; holding the line in cover causes abrasion.
+    const touching = this.obstacles.some(o => {
+      const dx = s.dist / o.rd, dy = s.lateral / o.rx;
+      const t = clamp((o.d / o.rd * dx + o.lateral / o.rx * dy) /
+        Math.max(0.01, dx * dx + dy * dy), 0, 1);
+      const lineHit = ((s.dist * t - o.d) / o.rd) ** 2 +
+        ((s.lateral * t - o.lateral) / o.rx) ** 2 < 1;
+      return lineHit;
+    });
+    this.snagTime = touching ? this.snagTime + dt : Math.max(0, this.snagTime - dt * 2);
+    if (touching) s.message = 'Dây chạm vùng sen — ép cần ra vùng nước trống!';
+    if (this.snagTime > 2.5 && s.lineTension > 25) return this.escape('snag');
 
     // ---------------- Landing (stage 4)
     this.updateLanding(dt, c);
     return s;
   }
 
-  /** Landing mini-game: bring the fish in, put the net under it, scoop when it turns or lies tired. */
+  /** Guide the head over a submerged net mouth; no random landing roll. */
   private updateLanding(dt: number, c: FightControls) {
-    const s = this.s;
-    const L = s.landing;
-    const r = this.rng;
-    const near = s.dist < 4.2;
-    L.netOut = c.netOut && near;
-    if (s.phase === 'fighting' && L.netOut) {
-      if (s.fishStamina > 40) {
-        L.reason = 'Cá còn khỏe — làm cá mệt hơn rồi mới đưa vợt.';
-        L.netOut = false;
+    const s = this.s, L = s.landing;
+    L.netOut = c.netOut && s.dist < 4.2;
+    L.netX = approach(L.netX, c.netX, 9, dt);
+    L.netDepth = clamp(c.netDepth ?? 0.35, 0.02, 0.8);
+    L.netDistance = clamp(c.netDistance ?? s.dist, 0.5, 4.5);
+    if (!c.netOut || s.dist > 5) {
+      s.phase = 'fighting'; L.window = 'none'; L.ready = 0; L.inside = false;
+      return;
+    }
+    if (s.phase === 'fighting') {
+      if (!L.netOut || s.fishStamina > 40) return;
+      s.phase = 'landing';
+      this.lastNetX = L.netX;
+      // A strong fish can react to a close net, not a mandatory final burst.
+      if (!this.finalBurstDone && s.fishStamina > 25 && s.lineTension > 65) {
+        this.finalBurstDone = true;
+        this.enter('BURST');
+        s.message = 'Cá còn sức, hoảng khi thấy vợt — giữ cần ổn định.';
+        s.phase = 'fighting';
+        return;
+      }
+    }
+    const velocity = Math.abs(L.netX - this.lastNetX) / dt;
+    this.lastNetX = L.netX;
+    this.netSpeed = approach(this.netSpeed, velocity, 8, dt);
+    L.fishX = s.lateral;
+    // -1 = head towards bank; +1 = head away. Loaded, tired fish can be led in.
+    const away = s.behavior === 'BURST' || s.behavior === 'RUNNING';
+    const heading = away && s.fishStamina > 18 ? 1 : -1;
+    L.heading = approach(L.heading, heading, 3, dt);
+    L.window = L.heading > 0 || this.netSpeed > 5 ? 'lunge'
+      : s.fishStamina < 20 ? 'tired' : 'turn';
+    const fishLen = this.fish.maxLength / 100 * Math.cbrt(this.size);
+    const fits = fishLen <= this.gear.netSize * 2.5;
+    const lateralOk = Math.abs(L.netX - L.fishX) < this.gear.netSize * 0.8;
+    const distanceOk = Math.abs(L.netDistance - s.dist) < this.gear.netSize;
+    const submerged = L.netDepth >= s.depth + 0.06 && L.netDepth < s.depth + 0.6;
+    L.inside = fits && lateralOk && distanceOk && submerged && L.heading < -0.4 && this.netSpeed < 5;
+    L.ready = clamp(L.ready + (L.inside ? dt * 1.6 : -dt * 2), 0, 1);
+    L.reason = !fits ? 'Cá quá dài so với miệng vợt — cần vợt lớn hơn.'
+      : !submerged ? 'Hạ miệng vợt xuống dưới thân cá (rê chuột lên/xuống).'
+      : !lateralOk || !distanceOk ? 'Đặt miệng vợt phía trước đầu cá, dẫn cá vào.'
+      : L.heading > -0.4 ? 'Cá đang quay ra — giữ áp lực, chờ đầu cá hướng vào bờ.'
+      : this.netSpeed >= 5 ? 'Đừng đuổi cá bằng vợt — giữ vợt ổn định.'
+      : L.ready < 0.6 ? 'Đầu cá vào trước — chờ thân cá vào lòng vợt…'
+      : 'Cá đã trong lòng vợt — click / Space để nhấc.';
+    if (c.scoop) {
+      if (L.inside && L.ready >= 0.6) {
+        s.phase = 'landed';
       } else {
-        s.phase = 'landing';
-        this.landingT = 0;
-        L.window = 'lunge';
-        L.fishX = s.lateral;
+        // Only actual contact startles the fish. Missing open water has no penalty.
+        const contact = Math.abs(L.netX - L.fishX) < this.gear.netSize + 0.15 && distanceOk;
         L.ready = 0;
-        L.reason = '';
-        this.winT = 0.8;
-        if (!this.finalBurstDone && this.size > 0.45) {
-          this.finalBurstDone = true;
-          this.enter('BURST');
-          s.fishStamina = Math.min(100, s.fishStamina + 12);
-          s.message = 'Cá lớn vùng vẫy lần cuối!';
-          s.phase = 'fighting';
-          return;
+        if (contact && s.fishStamina > 15) {
+          this.enter('TURNING');
+          s.message = 'Vành vợt chạm cá — cá đổi hướng.';
         }
       }
     }
-    if (s.phase !== 'landing') {
-      L.window = 'none';
-      return;
-    }
-    if (!c.netOut || s.dist > 5) {
-      s.phase = 'fighting';
-      L.window = 'none';
-      return;
-    }
-    this.landingT += dt;
-    // net follows the mouse; chasing the fish too fast spooks it
-    const netV = (c.netX - this.lastNetX) / Math.max(dt, 1e-3);
-    this.lastNetX = c.netX;
-    this.netSpeed = approach(this.netSpeed, Math.abs(netV), 8, dt);
-    L.netX = c.netX;
-    // fish sways near the surface; the window cycles lunge → turn → tired, tired lasts longer when stamina is low
-    // lunging fish swing wide, a turning fish slows, a tired fish nearly stops (the moment to scoop)
-    const amp = (0.45 + this.size * 0.45) * (L.window === 'lunge' ? 1.6 : L.window === 'turn' ? 0.7 : 0.2);
-    const sway = Math.sin(this.landingT * (0.8 + this.size * 0.6)) * amp;
-    L.fishX = approach(L.fishX, s.lateral + sway, L.window === 'lunge' ? 3 : 1.5, dt);
-    s.lateral = approach(s.lateral, 0, 0.6, dt);
-    L.ready = clamp(L.ready + (Math.abs(L.netX - L.fishX) < this.gear.netSize * 1.4 ? dt : -dt * 2), 0, 1);
-    const self = this;
-    self.winT -= dt;
-    if (self.winT <= 0) {
-      if (L.window === 'lunge') { L.window = 'turn'; self.winT = r.range(0.6, 1.0) * this.diff.react; }
-      else if (L.window === 'turn') { L.window = s.fishStamina < 20 || r.chance(0.5) ? 'tired' : 'lunge'; self.winT = L.window === 'tired' ? r.range(1.0, 2.0) * this.diff.react * (1.3 - this.size * 0.4) : r.range(0.8, 1.4); }
-      else { L.window = 'lunge'; self.winT = r.range(0.7, 1.4) * (0.7 + this.size * 0.6) * this.diff.fishTurn; }
-    }
-    if (this.netSpeed > 7 && Math.abs(L.netX - L.fishX) < 2 && L.window !== 'lunge') {
-      L.window = 'lunge';
-      self.winT = 1.0;
-      L.reason = 'Đuổi vợt quá nhanh làm cá hoảng!';
-    }
-    if (c.scoop) this.scoop();
-  }
-
-  private scoop() {
-    const s = this.s;
-    const L = s.landing;
-    const fishLen = this.fish.maxLength / 100 * Math.cbrt(this.size);
-    const tol = Math.max(0.15, this.gear.netSize - fishLen * 0.35);
-    const aligned = Math.abs(L.netX - L.fishX) < tol;
-    const under = L.ready > 0.5; // net held under the fish for a moment = scooping from below
-    if (L.window !== 'lunge' && aligned && under) {
-      const bigForNet = fishLen > this.gear.netSize * 2.2;
-      const p = (L.window === 'tired' ? 0.95 : 0.75) * (bigForNet ? 0.45 : 1);
-      if (this.rng.chance(p)) {
-        s.phase = 'landed';
-        return;
-      }
-      L.reason = bigForNet ? 'Cá quá to so với vợt — trượt khỏi miệng vợt!' : 'Cá trượt khỏi vợt!';
-    } else {
-      L.reason = L.window === 'lunge' ? 'Cá đang lao mạnh — chưa thể vớt!' : !aligned ? 'Vợt lệch khỏi cá — đưa vợt đúng phía dưới cá.' : 'Giữ vợt dưới cá một nhịp rồi mới nhấc.';
-    }
-    // failed scoop: fish bumps the net and runs
-    s.fishStamina = Math.min(100, s.fishStamina + 10);
-    s.hookStrength -= 18;
-    s.dist += 2.5;
-    s.lineTension = Math.min(100, s.lineTension + 30);
-    s.phase = 'fighting';
-    L.window = 'none';
-    this.enter('BURST');
-    if (s.hookStrength <= 0) this.escape('net_fail');
   }
 
   private escape(reason: EscapeReason): FishFightState {
