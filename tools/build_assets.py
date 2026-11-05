@@ -120,6 +120,8 @@ for v in ["basic", "contrast", "night_glow"]:
 FISH = [  # Phase 1: three species (Gói 1 art faces left already)
     ("ro_phi", f"{M4}/fish/fwo_fish_ro_phi", False), ("ca_tre", f"{M4}/fish/fwo_fish_ca_tre", False),
     ("ca_loc", f"{M4}/fish/fwo_fish_ca_loc", False),
+    # Fish Fight System: Strategic (chép) + Heavy Puller (trắm) from Gói 2 (faces right -> flip)
+    ("ca_chep", f"{M8}/fish/fwo_fish2_ca_chep", True), ("tram_co", f"{M8}/fish/fwo_fish2_tram_co", True),
 ]
 for fid, base, flip in FISH:
     im = clean_fish(base + "_art.png", f"fish/{fid}.png", flip)

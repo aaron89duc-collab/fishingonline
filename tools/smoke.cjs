@@ -1,8 +1,8 @@
-//  Headless smoke test: menu → fishing → cast → wait for bite → hook → fight → land / escape
+// Headless smoke test: menu → fishing → cast → wait for bite → hook → fight → land / escape
 const { chromium } = require('playwright');
 (async () => {
   const out = process.argv[2] || '/home/claude/shots';
-  const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
+  const browser = await chromium.launch({ args: ['--disable-gpu', '--autoplay-policy=no-user-gesture-required'] });
   const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
   const logs = [];
   page.on('console', (m) => logs.push(m.type() + ': ' + m.text()));
@@ -47,23 +47,44 @@ const { chromium } = require('playwright');
       await sleep(30);
     }
     window.__phase = 'window';
-    await sleep(250);
-    ${key('keydown','Space')}; ${key('keyup','Space')};
+    const codes = {KeyA:65,KeyD:68,KeyW:87,KeyS:83,KeyQ:81,KeyE:69,KeyF:70,Space:32};
+    const ev = (t, c) => window.dispatchEvent(new KeyboardEvent(t, { code: c, keyCode: codes[c], bubbles: true }));
+    let held = {};
+    const down = (c) => { if (!held[c]) { held[c] = 1; ev('keydown', c); } };
+    const up = (c) => { if (held[c]) { held[c] = 0; ev('keyup', c); } };
+    const tap = (c) => { ev('keydown', c); ev('keyup', c); };
+    // Hook Setting: strike in the best direction, held ~220 ms for hard mouths
+    await sleep(200);
+    const b = s.auth.bite; const dir = b.bestStrike();
+    const strong = ['ca_tre','ca_loc','tram_co'].includes(b.species && b.species.id);
+    if (dir === 'left') down('KeyA'); if (dir === 'right') down('KeyD');
+    ev('keydown', 'Space'); await sleep(strong ? 230 : 60); ev('keyup', 'Space');
+    up('KeyA'); up('KeyD');
     await sleep(200);
     window.__phase = 'fight:' + s.mode;
     t0 = performance.now();
-    let held = {};
-    const down = (c) => { if (!held[c]) { held[c] = 1; eval(\`window.dispatchEvent(new KeyboardEvent('keydown', { code: '\${c}', keyCode: \${({KeyA:65,KeyD:68,KeyW:87,KeyS:83,Space:32})[c]}, bubbles: true }))\`); } };
-    const up = (c) => { if (held[c]) { held[c] = 0; eval(\`window.dispatchEvent(new KeyboardEvent('keyup', { code: '\${c}', keyCode: \${({KeyA:65,KeyD:68,KeyW:87,KeyS:83,Space:32})[c]}, bubbles: true }))\`); } };
     while (s.mode === 'fight' && performance.now() - t0 < 150000) {
       const f = s.fightState;
-      if (f.fishDirection > 0) { up('KeyD'); down('KeyA'); } else { up('KeyA'); down('KeyD'); }
-      if (f.tension < 65) { up('KeyS'); down('KeyW'); } else up('KeyW');
-      if (f.tension > 85) down('KeyS'); else if (f.tension < 70) up('KeyS');
-      if (f.phase === 'landing') { up('Space'); held.Space = 0; down('Space'); up('Space'); }
+      const want = -f.balance / 22 - f.fishDir * 0.3;
+      if (want > 0.25) { up('KeyA'); down('KeyD'); } else if (want < -0.25) { up('KeyD'); down('KeyA'); } else { up('KeyA'); up('KeyD'); }
+      const mid = (f.idealAngle[0] + f.idealAngle[1]) / 2;
+      if (mid - f.rodAngle > 0.05) { up('KeyS'); down('KeyW'); } else if (f.rodAngle - mid > 0.05) { up('KeyW'); down('KeyS'); } else { up('KeyW'); up('KeyS'); }
+      const danger = f.behavior === 'BURST' || f.next === 'BURST' || f.lineTension > 82;
+      const td = danger ? 0.3 : f.behavior === 'SULKING' ? 0.75 : 0.6;
+      if (td - f.drag > 0.05) { up('KeyQ'); down('KeyE'); } else if (f.drag - td > 0.05) { up('KeyE'); down('KeyQ'); } else { up('KeyQ'); up('KeyE'); }
+      const reelOk = !danger && f.lineTension < 62 && f.behavior !== 'SHAKING' && f.behavior !== 'JUMPING';
+      s.reelGear = f.behavior === 'RESTING' || f.behavior === 'EXHAUSTED' ? 3 : 2;
+      s.input2.left = reelOk && !s.netOut;
+      if (f.dist < 4.2 && f.fishStamina < 40 && !s.netOut) { tap('KeyF'); window.__net = 1; }
+      if (s.netOut) {
+        const p = s.auth.persp; const w = p.toWorld(f.dist, f.landing.fishX);
+        s.aim.sx = s.aim.sx + Math.max(-25, Math.min(25, (w.x - s.cameras.main.scrollX) - s.aim.sx));
+        if (f.phase === 'landing' && f.landing.window !== 'lunge' && f.landing.ready > 0.6 && Math.random() < 0.15) tap('Space');
+      }
       await sleep(30);
     }
-    ['KeyA','KeyD','KeyW','KeyS'].forEach(up);
+    s.input2.left = false;
+    ['KeyA','KeyD','KeyW','KeyS','KeyQ','KeyE'].forEach(up);
     window.__phase = 'done:' + s.mode;
     return log.join('>');
   })()`;
@@ -72,13 +93,14 @@ const { chromium } = require('playwright');
   for (let i = 0; i < 300; i++) {
     const ph = await page.evaluate(() => window.__phase || '');
     if (ph.startsWith('fight') && shots < 2) { await page.waitForTimeout(shots ? 4000 : 1200); await page.screenshot({ path: out + `/08_fight_${++shots}.png` }); }
+    if (ph.startsWith('fight') && (await page.evaluate(() => window.__net)) && !global.nt) { global.nt = 1; await page.waitForTimeout(700); await page.screenshot({ path: out + '/08_net.png' }); }
     if (!ph && (await page.evaluate(() => window.__nib)) && !global.n) { global.n = 1; await page.screenshot({ path: out + '/06_nibble.png' }); }
     if (ph === 'window' && !global.w) { global.w = 1; await page.screenshot({ path: out + '/07_window.png' }); }
     if (ph.startsWith('done')) break;
     await page.waitForTimeout(500);
   }
   console.log('bite log', await pBot, 'phase', await page.evaluate(() => window.__phase), 'fps', await page.evaluate(() => window.__fwo.loop.actualFps));
-  for (const key of ['KeyA', 'KeyD', 'KeyW', 'KeyS']) await page.keyboard.up(key);
+  for (const key of ['KeyA', 'KeyD', 'KeyW', 'KeyS', 'KeyQ', 'KeyE']) await page.keyboard.up(key);
   await page.waitForFunction(() => window.__fwo.scene.getScene('fishing').mode !== 'landing', null, { timeout: 60000 }).catch(() => {});
   await page.waitForTimeout(2500);
   await page.screenshot({ path: out + '/09_result.png' });
