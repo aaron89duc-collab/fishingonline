@@ -3,6 +3,7 @@ import { Button, COL, txt } from '../game/ui';
 import { sfx } from '../game/sfx';
 import { SaveStore } from '../core/profile';
 import { DIFFICULTY, type Difficulty } from '../core/fishFight';
+import { requestMobileFullscreen } from '../game/fullscreen';
 
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -19,6 +20,7 @@ export class MenuScene extends Phaser.Scene {
     txt(this, 960, 720, 'Phase 1 — Bờ cỏ · Rô phi · Cá trê · Cá lóc · Cá chép · Trắm cỏ', 26, '#cfe7e0', 600).setOrigin(0.5);
     const p = SaveStore.load();
     const start = () => {
+      void requestMobileFullscreen();
       sfx.unlock();
       this.scene.start('fishing');
     };

@@ -1,0 +1,12 @@
+{
+  "name": "Fishing World Online",
+  "short_name": "Fishing World",
+  "lang": "vi",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0b1d22",
+  "theme_color": "#0e2a33",
+  "icons": [{ "src": "./favicon.png", "sizes": "any", "type": "image/png", "purpose": "any" }]
+}
